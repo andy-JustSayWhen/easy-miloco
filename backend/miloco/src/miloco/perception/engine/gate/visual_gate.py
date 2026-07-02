@@ -19,6 +19,7 @@ class VisualEvalResult:
     远大于窗内邻帧;若 cross_max 持续 >> intra_max,说明 ISP 长周期漂移
     (AGC/IR/AWB)主导,而非真实运动。
     """
+
     changed: bool
     max_score: float
     intra_max: float
@@ -51,20 +52,32 @@ def evaluate_visual(
     if len(check_indices) < 2 and len(frames) >= 2:
         check_indices.append(len(frames) - 1)
 
-    # 每帧只预处理一次;跳过空帧(解码异常兜底,cv2.resize 对空数组会抛错)
-    processed = [_preprocess(frames[i]) for i in check_indices if frames[i].size > 0]
-    if not processed:
+    # 每帧只预处理一次;跳过空帧(解码异常兜底,cv2.resize 对空数组会抛错)。
+    # 流式比较避免把整窗的 448x448 灰度临时图全部留在内存里。
+    first_processed: NDArray[np.uint8] | None = None
+    prev_processed: NDArray[np.uint8] | None = None
+    last_checked: NDArray[np.uint8] | None = None
+    intra_max = 0.0
+    for i in check_indices:
+        frame = frames[i]
+        if frame.size <= 0:
+            continue
+        current = _preprocess(frame)
+        if first_processed is None:
+            first_processed = current
+        if prev_processed is not None:
+            intra_max = max(intra_max, _diff_processed(prev_processed, current))
+        prev_processed = current
+        last_checked = current
+
+    if first_processed is None or last_checked is None:
         return VisualEvalResult(False, 0.0, 0.0, 0.0, None)
-    last_checked = processed[-1]
 
     # cross_max: 上窗末帧 vs 本窗首帧的单一 score(仅 prev_frame 存在时)
     # intra_max: 本窗内邻帧对的 max
     cross_max = (
-        _diff_processed(prev_frame, processed[0]) if prev_frame is not None else 0.0
+        _diff_processed(prev_frame, first_processed) if prev_frame is not None else 0.0
     )
-    intra_max = 0.0
-    for gray_a, gray_b in zip(processed, processed[1:]):
-        intra_max = max(intra_max, _diff_processed(gray_a, gray_b))
 
     max_score = max(cross_max, intra_max)
     # cold-start:无跨窗基准(prev_frame is None)时静止画面 cross=0/intra≈0 会被当无变化丢掉,
@@ -95,14 +108,18 @@ def _preprocess(frame: NDArray[np.uint8]) -> NDArray[np.uint8]:
     return cv2.cvtColor(small, cv2.COLOR_BGR2GRAY) if small.ndim == 3 else small
 
 
-def _diff_processed(gray_a: NDArray[np.uint8], gray_b: NDArray[np.uint8], pixel_threshold: int = 25) -> float:
+def _diff_processed(
+    gray_a: NDArray[np.uint8], gray_b: NDArray[np.uint8], pixel_threshold: int = 25
+) -> float:
     """Ratio of changed pixels between two preprocessed (448x448 gray) frames."""
     diff = cv2.absdiff(gray_a, gray_b)
     changed_pixels = np.count_nonzero(diff > pixel_threshold)
     return changed_pixels / diff.size
 
 
-def compute_frame_diff(frame_a: NDArray[np.uint8], frame_b: NDArray[np.uint8], pixel_threshold: int = 25) -> float:
+def compute_frame_diff(
+    frame_a: NDArray[np.uint8], frame_b: NDArray[np.uint8], pixel_threshold: int = 25
+) -> float:
     """Compute ratio of changed pixels between two raw frames.
 
     Frames are resized to 448x448 before comparison to avoid

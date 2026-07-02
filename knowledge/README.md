@@ -162,6 +162,7 @@ knowledge/
 - **06-dev-guide**
   - [开发指南](06-dev-guide/dev-guide.md)
   - [故障排查](06-dev-guide/troubleshooting.md)
+  - [低配 NAS 性能优化](06-dev-guide/low-config-nas-performance.md)
 - **07-design**
   - [设计规范（总览）](07-design/README.md)
   - [设计原则](07-design/design-principles.md)
