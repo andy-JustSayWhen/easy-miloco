@@ -12,9 +12,11 @@ on:
         required: true
         default: "linux/amd64"
   push:
-    branches: [NAS]
+    branches: [main, NAS]
     paths:
       - ".github/workflows/nas-offline-package.yml"
+      - "nas/release/**"
+      - "nas/docker/compose.ugreen-template.yaml"
 
 permissions:
   contents: read
@@ -41,6 +43,9 @@ jobs:
           docker pull --platform "$platform" "${IMAGE}:${version}"
           docker save -o "$out/easy-miloco-nas-${version}-${arch}.tar" "${IMAGE}:${version}"
 
+          cp nas/release/README.md "$out/README.md"
+          cp nas/release/AGENT.md "$out/AGENT.md"
+          cp nas/docker/compose.ugreen-template.yaml "$out/compose.ugreen.yaml"
           cp nas/docker/compose.ugreen-template.yaml "$out/compose.ugreen-offline.yaml"
           python3 - "$out/compose.ugreen-offline.yaml" "${IMAGE}:${version}" <<'PY'
           from pathlib import Path
@@ -53,20 +58,6 @@ jobs:
           text = re.sub(r"image:\s+\S+", f"image: {image}", text, count=1)
           path.write_text(text, encoding="utf-8")
           PY
-
-          cat > "$out/README.txt" <<EOF
-          easy-miloco NAS 离线包 ${version} ${arch}
-
-          使用步骤：
-          1. 绿联 Docker -> 镜像 -> 导入，选择 easy-miloco-nas-${version}-${arch}.tar。
-          2. 镜像列表出现 ${IMAGE}:${version} 后，进入项目/Compose 部署。
-          3. 粘贴 compose.ugreen-offline.yaml。
-          4. 修改 OMNI_API_KEY、OPENCLAW_CHAT_API_KEY。
-          5. 修改 volumes 里的数据路径：只替换 <> 内的路径和 <> 符号，右侧 :/data 不要改。
-          6. 部署后等待 1-3 分钟，再打开 http://NAS-IP:1810/ 和 http://NAS-IP:18789/。
-
-          不要公开分享运行后的 /data 目录或容器备份；只分享本离线镜像 tar、YAML 和说明。
-          EOF
 
           (cd "$out" && sha256sum * > SHA256SUMS.txt)
           tar -czf "${out}.tar.gz" "$out"
