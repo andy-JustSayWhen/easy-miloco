@@ -126,4 +126,4 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 | 轮次 | 改动 | 本地验证 | NAS 验证 | 结论 |
 | --- | --- | --- | --- | --- |
 | 第一轮-准备 | 暴露拉流质量、释放禁用摄像头、Gate 流式比较 | `pytest backend/miloco/tests/perception/engine/gate/test_visual_gate.py` 通过 | 待实测 | 目标是先降低入口解码与 Gate 压力 |
-| 第一轮-内存 | `keep` 模式下已处理窗口只保留最近一个 | `pytest backend/miloco/tests/perception/test_stream_buffer_overflow.py` 通过 | 部署前基线：CPU 73.5% / 预算 200%，RSS 4513.1MB / 预算 3905.5MB，内存超限 | 目标是释放历史解码帧，降低 RSS 峰值 |
+| 第一轮-内存 | `keep` 模式下已处理窗口只保留最近一个 | `pytest backend/miloco/tests/perception/test_stream_buffer_overflow.py` 通过 | 部署前 2 分钟采样：CPU 峰值 95.0% / 预算 200%，RSS 峰值 5015.6MB / 预算 3905.5MB，内存持续超限；`identity_ms=0`、`omni_ms=0` | 目标是释放历史解码帧，降低 RSS 峰值 |
