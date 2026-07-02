@@ -19,7 +19,7 @@
 | macOS 部署 | [macos/agent-install.md](macos/agent-install.md) |
 | NAS 部署 | [nas/index.md](nas/index.md)、[nas/agent-install.md](nas/agent-install.md)、[nas/docker-deploy.md](nas/docker-deploy.md) |
 | 华为 SWR 镜像上传/管理 | [huawei-swr-docker-image-runbook.md](huawei-swr-docker-image-runbook.md) |
-| 摄像头排障 | [cameras.md](cameras.md)、[windows/camera-runbook.md](windows/camera-runbook.md) |
+| 摄像头排障 | [fix-camera/index.md](fix-camera/index.md) |
 | 制作 release 包 | [runbooks/make-release-package.md](runbooks/make-release-package.md) |
 | 通用变更排障 | [runbooks/change-and-debug-runbook.md](runbooks/change-and-debug-runbook.md) |
 

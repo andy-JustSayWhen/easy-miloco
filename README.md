@@ -63,7 +63,7 @@ Agent 只需要先读上面这个总入口；进入后会按当前系统自动�
 | 夸克网盘                | 可选     | 中国大陆用户 GitHub 下载慢时使用副本                                                                                                               |
 | 小米账号                | 必须     | 用于绑定米家设备、读取家庭和设备列表                                                                                                               |
 | LLM API Key / Base URL  | 必须     | 用于 Miloco 视觉/多模态感知推理。Base URL 需要是 OpenAI 兼容格式，通常以`/v1` 结尾                                                               |
-| 米家摄像头              | 必须     | 用于让 Miloco 获取家中画面并做视觉理解；摄像头需已绑定米家 App，且在米家 App 里能正常打开画面。支持型号见`docs/cameras.md`                       |
+| 米家摄像头              | 必须     | 用于让 Miloco 获取家中画面并做视觉理解；摄像头需已绑定米家 App，且在米家 App 里能正常打开画面。支持型号见`docs/fix-camera/cameras.md`                       |
 | OpenClaw                | 必须     | Miloco 以 OpenClaw 插件/技能形式接入 Agent 对话和自动化                                                                                            |
 | Python / Node / uv      | 可选     | 用户无需预装，一键包会自动准备；如果自动安装失败，诊断报告会指出失败层                                                                             |
 
@@ -154,7 +154,7 @@ easy-miloco-v0.5-windows/
 | 教程、FAQ、runbook                | ❌       | ☑️     | 当前仓库新增`docs/`，覆盖一键部署、Windows、摄像头、SSH 命令传输、NAS 安装、性能报告等复用经验。                                        |
 | 性能报告 WebUI                    | ❌       | ☑️     | 当前仓库新增`performance_report.py`、`performance_report_router.py` 和 `PerformanceReportsPage.tsx`，展示每次后端运行报告。         |
 | Agent 可读备份恢复包              | ❌       | ☑️     | 当前仓库新增`backup_export.py`、`BackupPage.tsx` 和 `/admin/backup/export`，导出家庭档案、成员、任务、模型配置的逻辑恢复 zip。      |
-| 摄像头 Wi-Fi/首帧排障规则         | ❌       | ☑️     | 当前仓库把 Game/5G Wi-Fi、坏 LAN override、无首帧 cooldown、误删 OAuth 等实战规则沉淀到`docs/windows/camera-runbook.md`。               |
+| 摄像头 Wi-Fi/首帧排障规则         | ❌       | ☑️     | 当前仓库把 Game/5G Wi-Fi、坏 LAN override、无首帧 cooldown、误删 OAuth 等实战规则沉淀到`docs/fix-camera/camera-runbook.md`。               |
 
 ## 其他
 

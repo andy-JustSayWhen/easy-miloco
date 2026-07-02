@@ -4,7 +4,7 @@
 
 本文是 [../install-guide.md](../install-guide.md) 路由后的 Windows 子指南。Agent 从 README 的一句话进入总入口后，如果目标系统是 Windows，只读本文继续执行。
 
-第一次部署先看 [Windows部署总入口](index.md)。摄像头异常按 [摄像头问题快速定位与修复Runbook](camera-runbook.md) 分层处理。
+第一次部署先看 [Windows部署总入口](index.md)。摄像头异常按 [摄像头问题快速定位与修复Runbook](../fix-camera/camera-runbook.md) 分层处理。
 
 ## 前置条件
 
@@ -182,7 +182,7 @@ miloco-cli device list             # TSV 输出里有设备行，不只是表头
 miloco-cli scope camera list --pretty
 ```
 
-摄像头满血还要逐个目标摄像头 did 验收：`is_online=true`、`in_use=true`、`connected=true`、`/api/perception/engine/status` 的 `active_sources` 包含目标 did，并且在 OpenClaw 聊天中能描述对应摄像头画面。若任一项失败，按 [摄像头问题快速定位与修复Runbook](camera-runbook.md) 的六层模型定位，不要直接重装。
+摄像头满血还要逐个目标摄像头 did 验收：`is_online=true`、`in_use=true`、`connected=true`、`/api/perception/engine/status` 的 `active_sources` 包含目标 did，并且在 OpenClaw 聊天中能描述对应摄像头画面。若任一项失败，按 [摄像头问题快速定位与修复Runbook](../fix-camera/camera-runbook.md) 的六层模型定位，不要直接重装。
 
 如果账号或 API Key 缺失，Agent 不应宣称“满血完成”，只能宣称“基础服务与 OpenClaw 插件就绪，等待账号/API Key”。
 

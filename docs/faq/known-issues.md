@@ -47,7 +47,7 @@
 
 处理：
 
-- 先按 [../cameras.md](../cameras.md) 的四层状态定位。
+- 先按 [../fix-camera/cameras.md](../fix-camera/cameras.md) 的四层状态定位。
 - 查看 Miloco 后端日志中该摄像头是否有 frame count 或 active source。
 - 如果只有设备列表离线但实时画面可用，优先修正状态展示和聚合逻辑，不要直接重装。
 

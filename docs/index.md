@@ -9,7 +9,7 @@
 - macOS：[macos/index.md](macos/index.md)
 - NAS：[nas/index.md](nas/index.md)
 - NAS Docker：[nas/docker-deploy.md](nas/docker-deploy.md)
-- 摄像头：[cameras.md](cameras.md)
+- 摄像头：[fix-camera/index.md](fix-camera/index.md)
 - Miloco 资源占用：[miloco资源占用分析报告.md](miloco资源占用分析报告.md)
 - 常见问题：[faq/known-issues.md](faq/known-issues.md)
 
@@ -30,7 +30,8 @@ Agent 先读 [AGENT.md](AGENT.md)，再按系统进入：
 
 | 路径 | 用途 |
 | --- | --- |
-| `windows/` | Windows 一键包和摄像头公开指南 |
+| `windows/` | Windows 一键包和部署指南 |
+| `fix-camera/` | 摄像头接入、感知、denylist 和视频流排障文档 |
 | `macos/` | macOS 一键包和 Agent 指南 |
 | `nas/` | NAS 部署硬门槛、Docker Compose 部署和后续适配入口 |
 | `scripts/` | release 包复用的预检、收尾、验收和发布脚本 |

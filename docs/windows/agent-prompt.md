@@ -2,7 +2,7 @@
 
 用途：把下面提示词复制给具备 SSH 能力的 Agent，让它按官方流程在 Windows + WSL 机器上部署 Miloco。
 
-第一次部署先看 [Windows部署总入口](index.md)。摄像头异常专项见 [摄像头问题快速定位与修复Runbook](camera-runbook.md)。
+第一次部署先看 [Windows部署总入口](index.md)。摄像头异常专项见 [摄像头问题快速定位与修复Runbook](../fix-camera/camera-runbook.md)。
 
 ## 标准提示词
 

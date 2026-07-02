@@ -8,8 +8,8 @@ Windows 只走 WSL2，不支持 Windows 原生后端。
 - Agent 一句话提示：[agent-prompt.md](agent-prompt.md)
 - Release 包说明：[release-package.md](release-package.md)
 - Release notes 模板：[release-notes-template.md](release-notes-template.md)
-- 摄像头排障：[camera-runbook.md](camera-runbook.md)
-- 摄像头 denylist 修复：[camera-denylist-auto-fix-guide.md](camera-denylist-auto-fix-guide.md)
+- 摄像头排障：[../fix-camera/camera-runbook.md](../fix-camera/camera-runbook.md)
+- 摄像头 denylist 修复：[../fix-camera/camera-denylist-auto-fix-guide.md](../fix-camera/camera-denylist-auto-fix-guide.md)
 
 ## 验收口径
 
