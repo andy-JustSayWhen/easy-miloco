@@ -227,6 +227,10 @@ class CameraSettings(BaseModel):
 
     frame_interval: int = Field(default=1000, description="帧采集间隔（毫秒）")
     max_cache_images: int = Field(default=6, description="最大缓存图像数量")
+    video_quality: str = Field(
+        default="HIGH",
+        description="默认摄像头拉流质量（LOW/HIGH）；单摄像头覆盖仍可通过 workspace/camera_video_quality_overrides.json 设置",
+    )
 
 
 class RuleSettings(BaseModel):

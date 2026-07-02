@@ -60,6 +60,7 @@ miot:
 camera:
   frame_interval: 1000   # 帧采集间隔（毫秒）
   max_cache_images: 6    # 最大缓存图像数量
+  video_quality: "HIGH"  # 默认摄像头拉流质量（LOW=低清/HIGH=高清）
 
 # 规则引擎相关配置
 rule:

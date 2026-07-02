@@ -655,10 +655,24 @@ class MiotProxy:
         return overrides
 
     def _get_camera_video_quality(self, did: str) -> MIoTCameraVideoQuality:
-        """Resolve camera start quality, defaulting to HIGH."""
-        return self._get_camera_video_quality_overrides().get(
-            did, MIoTCameraVideoQuality.HIGH
+        """Resolve camera start quality.
+
+        Per-camera workspace overrides win over the global config value so existing
+        deployments that tuned one noisy/high-res camera keep their behaviour.
+        """
+        override = self._get_camera_video_quality_overrides().get(did)
+        if override is not None:
+            return override
+        configured = str(get_settings().camera.video_quality).strip().upper()
+        if configured == "LOW":
+            return MIoTCameraVideoQuality.LOW
+        if configured == "HIGH":
+            return MIoTCameraVideoQuality.HIGH
+        logger.warning(
+            "Ignoring invalid camera.video_quality=%s; defaulting to HIGH",
+            configured,
         )
+        return MIoTCameraVideoQuality.HIGH
 
     def _get_camera_lan_overrides(self) -> dict[str, str]:
         """Load optional per-camera LAN IP overrides from the Miloco workspace."""

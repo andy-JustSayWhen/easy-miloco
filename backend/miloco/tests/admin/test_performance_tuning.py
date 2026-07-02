@@ -80,6 +80,7 @@ async def test_diagnosis_input_contains_runtime_perf_scope_and_config(monkeypatc
     assert payload["runtime_scope"]["enabled_camera_count"] == 3
     assert payload["runtime_scope"]["perception_engine"]["running"] is True
     assert "camera.frame_interval" in payload["config"]
+    assert "camera.video_quality" in payload["config"]
     assert "perception.engine.input.period_sec" in payload["config"]
     assert "perception.engine.gate.hold_duration_sec" in payload["config"]
     assert payload["config_schema"]["perception.collect.window_size"]["max"] == 60
@@ -198,6 +199,7 @@ def test_apply_writes_config_and_schedules_restart(tmp_path, monkeypatch):
     result = pt.apply_performance_config(
         {
             "camera.frame_interval": 1500,
+            "camera.video_quality": "LOW",
             "perception.engine.input.fps": 2,
             "perf.enabled": True,
         }
@@ -205,6 +207,7 @@ def test_apply_writes_config_and_schedules_restart(tmp_path, monkeypatch):
 
     data = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
     assert data["camera"]["frame_interval"] == 1500
+    assert data["camera"]["video_quality"] == "LOW"
     assert data["perception"]["engine"]["input"]["fps"] == 2
     assert data["perf"]["enabled"] is True
     assert scheduled == [True]
@@ -243,6 +246,7 @@ async def test_safe_mode_applies_low_power_config_and_schedules_restart(
     data = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
     assert data["camera"]["frame_interval"] == 5000
     assert data["camera"]["max_cache_images"] == 2
+    assert data["camera"]["video_quality"] == "LOW"
     assert data["perception"]["collect"]["window_size"] == 60
     assert data["perception"]["engine"]["input"]["period_sec"] == 60
     assert data["perception"]["engine"]["gate"]["hold_duration_sec"] == 0

@@ -47,6 +47,13 @@ const PARAM_COPY: Record<string, ParamCopy> = {
     purpose: "控制每路摄像头最多在内存里留多少张历史画面。",
     effect: "调小后内存下降，但能回看的画面更少。",
   },
+  "camera.video_quality": {
+    zh: "摄像头拉流质量",
+    en: "Camera stream quality",
+    hint: "低配 NAS 建议 LOW。它会从源头减少视频解码和缩图压力。",
+    purpose: "控制摄像头启动时优先拉低清流还是高清流。",
+    effect: "LOW 更省 CPU、内存和带宽，但画面细节更少；HIGH 更清楚但更吃资源。",
+  },
   "perception.collect.window_size": {
     zh: "单次感知窗口长度",
     en: "Collect window size",
@@ -259,6 +266,9 @@ function tradeoffText(path: string): string {
   }
   if (path === "camera.max_cache_images") {
     return "可回看的缓存画面更少，但内存占用会下降。";
+  }
+  if (path === "camera.video_quality") {
+    return "从源头降低视频分辨率，解码和缩图都会变轻，但画面细节会减少。";
   }
   if (path.includes("identity") || path.includes("deep_sort")) {
     return "身份识别刷新会变慢，但能减少持续高 CPU。";

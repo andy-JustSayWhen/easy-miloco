@@ -953,6 +953,35 @@ def test_get_camera_video_quality_overrides_ignores_invalid_values(
     assert "Ignoring invalid camera video quality override for c1" in caplog.text
 
 
+def test_get_camera_video_quality_uses_global_default(_scope_proxy_env, tmp_path):
+    proxy, _kv, _miot_client = _scope_proxy_env
+    (tmp_path / "config.json").write_text(
+        json.dumps({"camera": {"video_quality": "LOW"}}),
+        encoding="utf-8",
+    )
+    reset_settings()
+
+    assert proxy._get_camera_video_quality("c1") == MIoTCameraVideoQuality.LOW
+
+
+def test_get_camera_video_quality_prefers_per_camera_override(
+    _scope_proxy_env, tmp_path
+):
+    proxy, _kv, _miot_client = _scope_proxy_env
+    (tmp_path / "config.json").write_text(
+        json.dumps({"camera": {"video_quality": "LOW"}}),
+        encoding="utf-8",
+    )
+    path = (
+        get_settings().directories.workspace_dir
+        / "camera_video_quality_overrides.json"
+    )
+    path.write_text(json.dumps({"c1": "HIGH"}), encoding="utf-8")
+    reset_settings()
+
+    assert proxy._get_camera_video_quality("c1") == MIoTCameraVideoQuality.HIGH
+
+
 @pytest.mark.asyncio
 async def test_create_camera_img_manager_passes_pin_override(_scope_proxy_env):
     proxy, _kv, miot_client = _scope_proxy_env
@@ -1121,12 +1150,13 @@ async def test_rebuild_camera_stream_manager_ignores_cached_lan_override_without
 
 
 @pytest.mark.asyncio
-async def test_refresh_cameras_keeps_scope_denied_existing_manager(_scope_proxy_env):
-    """先有 manager + 后写停用集 + refresh → 历史 manager 保活(不销毁)。
+async def test_refresh_cameras_destroys_scope_denied_existing_manager(
+    _scope_proxy_env,
+):
+    """先有 manager + 后写停用集 + refresh → 历史 manager 必须释放。
 
-    设计变更:scope_denied 时不再 destroy manager,只 log。watch 视频流依赖
-    camera instance 存活,销毁会让已有的 watch WS 帧停止。只有摄像头真正从
-    账号消失(cam is None)时才 destroy。
+    低配/NAS 场景里,停用摄像头后若仍保活 SDK manager,解码线程会继续吃 CPU。
+    watch 视频流需要重新按需建 manager,不能让停用摄像头常驻拉流。
     """
     proxy, kv, miot_client = _scope_proxy_env
 
@@ -1140,11 +1170,12 @@ async def test_refresh_cameras_keeps_scope_denied_existing_manager(_scope_proxy_
     kv.set(ScopeConfigKeys.CAMERA_BLACK_LIST_KEY, json.dumps(["c1"]))
     await proxy.refresh_cameras()
 
-    # scope_denied 时不销毁,manager 保活;走 else 分支 update_camera_info
-    handler.destroy.assert_not_awaited()
-    miot_client.unregister_lan_device_changed_async.assert_not_awaited()
-    assert "c1" in proxy._camera_img_managers
-    handler.update_camera_info.assert_awaited_once()
+    handler.destroy.assert_awaited_once()
+    miot_client.unregister_lan_device_changed_async.assert_awaited_once_with(
+        did="c1"
+    )
+    assert "c1" not in proxy._camera_img_managers
+    handler.update_camera_info.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1153,7 +1184,7 @@ async def test_refresh_cameras_destroys_when_camera_removed_from_account(
 ):
     """摄像头从账号消失(cam is None) → destroy + unregister + dict 删除三件配对。
 
-    这是唯一剩余的 destroy 触发路径。scope_denied 时不再 destroy,只有这条路走 destroy。
+    与 scope_denied 一样,必须 destroy + unregister + dict 删除三件配对。
     """
     proxy, kv, miot_client = _scope_proxy_env
 

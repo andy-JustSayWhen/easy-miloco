@@ -79,6 +79,14 @@ CONFIG_SPECS: tuple[ConfigSpec, ...] = (
         impact="Lower values reduce RSS at the cost of shorter history.",
     ),
     ConfigSpec(
+        "camera.video_quality",
+        "string",
+        "Camera stream quality",
+        "Default camera stream quality used when starting camera streams.",
+        options=("LOW", "HIGH"),
+        impact="LOW reduces camera bandwidth, decode CPU, and image buffer memory; HIGH keeps more visual detail.",
+    ),
+    ConfigSpec(
         "perception.collect.window_size",
         "integer",
         "Collect window size",
@@ -264,6 +272,7 @@ DEFAULT_MAX_ENABLED_CAMERAS = 4
 LOW_POWER_SAFE_MODE_VALUES: dict[str, ConfigValue] = {
     "camera.frame_interval": 5000,
     "camera.max_cache_images": 2,
+    "camera.video_quality": "LOW",
     "perception.collect.window_size": 60,
     "perception.collect.max_windows": 1,
     "perception.collect.full_action": "clear",
