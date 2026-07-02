@@ -153,6 +153,7 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 | 第一轮-CPU/IO | remux 从磁盘临时文件改为内存流（`BytesIO`），避免每次 Omni 上传前写 raw 临时文件和 mp4 临时文件 | `pytest backend/miloco/tests/perception/test_encoded_video.py backend/miloco/tests/perception/engine/omni/test_prompt_builder.py backend/miloco/tests/perception/engine/test_pipeline.py -q`：169 passed；ruff 通过 | NAS 热补丁后主动查询成功：`remux_success=1`、`reencode=0`、`input_packets=168`、`output_bytes=814536`；资源监控更新后 CPU 约 124.7%、RSS 约 608.9MB；camera `raw_video` 约 15.05fps、`decode_video` 约 0.97fps | 不改变画面内容、不重新编码，只减少 NAS 磁盘 I/O 和临时文件风险；适合低配 NAS 的长时间运行稳定性 |
 | 第一轮-质量保护 | H.265 remux 暂时禁用，保留 H.264 remux；H.265 继续走 BGR 再编码兜底 | `pytest backend/miloco/tests/perception/test_encoded_video.py backend/miloco/tests/perception/engine/omni/test_prompt_builder.py backend/miloco/tests/perception/engine/test_pipeline.py -q`：171 passed；ruff 通过 | NAS 长窗口 H.265 remux 曾达到 `remux_success=1`、`reencode=0`，但 Omni 返回空答案；禁用 H.265 remux 后主动查询恢复答案：`answer='没有。'`，`reencode=1`，CPU 约 131.6%、RSS 约 704.7MB | 第一轮要求质量不打折；H.265 remux 虽能省 CPU，但当前会导致 Omni 空答案，必须先保守回退。后续可单独研究 H.265→Omni 兼容或低成本转码 |
 | 第一轮-观测 | 视频构造统计增加 `h265_remux_skipped` 数字字段，解释 H.265 为什么仍走再编码 | `pytest backend/miloco/tests/perception/engine/omni/test_prompt_builder.py backend/miloco/tests/perception/engine/test_pipeline.py backend/miloco/tests/perception/test_encoded_video.py -q`：172 passed；ruff 通过 | NAS 主动查询：`h265_remux_skipped=1`、`reencode=1`、`answer='没有。'`；CPU 约 113.5%、RSS 约 513.2MB | 性能页/Agent 诊断可直接说明“为保证 Omni 正常回答，H.265 当前跳过 remux”，避免用户只看到再编码和 CPU 波动却不知道原因 |
+| 第一轮-观测 | H.265 remux skip 后做 6 分钟只读稳态采样，不额外触发浏览器、主动查询或 Omni 调用 | NAS 实机采样 13 次，每 30 秒一次 | 一路桌面摄像头：CPU 峰值 126.5%、平均 115.9%；RSS 峰值 719.9MB、平均 634.0MB；raw_video 平均 15.12fps、decode_video 平均 0.97fps；RTF 峰值 0.52 | 静态运行期已低于 4 核宿主 200% CPU 预算和约 3.8GB RAM 预算；后续峰值风险主要来自触发 Omni 上传时 H.265 退回 BGR 再编码，而不是常规拉流空转 |
 
 ## 当前结论（2026-07-03 NAS 实测）
 
@@ -166,7 +167,7 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 
 资源监控自身也可能成为压力来源。早期实现启动后会立即试探完整内存区域采样，后续每 60 秒跟随资源监控采一次 `smaps` 和 Python heap。低配 NAS 上这类遍历会和感知周期争 CPU。延后并降频重型内存明细后，默认 1000ms、一路桌面摄像头、7 分钟运行期复验中，CPU 峰值 172.4%（4 核宿主约 43.1%）、平均 166.2%，RSS 峰值 694.0MB；采样覆盖 8 个 trace，其中 1 个实际进入 Omni 调用，仍低于 CPU/RAM 50% 预算。
 
-当前结论：单路桌面摄像头的运行期 CPU/RAM 已达成低配 NAS 预算，且使用默认 1000ms 采样间隔，不依赖 5000ms 降频。仍未完成全目标，因为还需要在更长时段、更多摄像头、有人移动、规则触发、Identity 实际进入的场景下复验最高峰值。
+当前结论：单路桌面摄像头的静态运行期 CPU/RAM 已达成低配 NAS 预算，且使用默认 1000ms 采样间隔，不依赖 5000ms 降频。H.265 remux skip 后的 6 分钟只读复验中，CPU 峰值 126.5%、平均 115.9%，RSS 峰值 719.9MB、平均 634.0MB。仍未完成全目标，因为还需要在更长时段、更多摄像头、有人移动、规则触发、Identity 实际进入，以及 H.265 云端上传退回再编码的场景下复验最高峰值。
 
 源码已接入摄像头原始码流 remux：无音频窗口会优先复用同一次拉流得到的 H.264/H.265 压缩包生成 MP4，减少 BGR 重新编码成 MP4 的 CPU 压力。2026-07-03 的 NAS 热补丁复验确认，真实摄像头流里的原始压缩包已经被保留下来，NAL 解析能识别关键帧，窗口里也已经出现 `encoded_video_packets`。后续主动查询复验进一步确认上传路径已实际 remux 成功：`remux_success=1`、`reencode=0`、`input_packets=297`、`output_bytes=1372689`，且 Omni 正常返回答案。
 
