@@ -10,6 +10,7 @@
 - NAS：[nas/index.md](nas/index.md)
 - NAS Docker：[nas/docker-deploy.md](nas/docker-deploy.md)
 - 摄像头：[cameras.md](cameras.md)
+- Miloco 资源占用：[miloco资源占用分析报告.md](miloco资源占用分析报告.md)
 - 常见问题：[faq/known-issues.md](faq/known-issues.md)
 
 ## Agent 入口
