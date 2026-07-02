@@ -21,6 +21,7 @@ EncodedVideoCodec = Literal["h264", "h265"]
 
 _H264_IDR_NAL_TYPE = 5
 _H265_RANDOM_ACCESS_NAL_TYPES = frozenset(range(16, 22))
+_MP4_TIME_BASE = Fraction(1, 1000)
 
 
 @dataclass(frozen=True)
@@ -174,9 +175,9 @@ def remux_encoded_video_to_mp4(
 
     This is intentionally conservative.  It only accepts a single-codec slice
     that starts with a keyframe, writes the raw Annex-B stream to FFmpeg/PyAV,
-    then stream-copies parsed packets into MP4 with synthetic timestamps based
-    on the perception fps.  Any parser/muxer failure returns ``None`` so callers
-    can fall back to the existing BGR -> H.264 encode path.
+    then stream-copies parsed packets into MP4 with timestamps derived from
+    packet wall-clock deltas.  Any parser/muxer failure returns ``None`` so
+    callers can fall back to the existing BGR -> H.264 encode path.
     """
 
     if fps <= 0 or not packets or not packets[0].is_keyframe:
@@ -202,17 +203,37 @@ def remux_encoded_video_to_mp4(
         try:
             in_stream = in_container.streams.video[0]
             out_stream = out_container.add_stream_from_template(in_stream)
-            time_base = Fraction(1, fps)
+            start_ms = packets[0].wall_ms
+            deltas = [
+                max(1, packets[i + 1].wall_ms - packets[i].wall_ms)
+                for i in range(len(packets) - 1)
+                if packets[i + 1].wall_ms > packets[i].wall_ms
+            ]
+            fallback_duration_ms = (
+                sorted(deltas)[len(deltas) // 2]
+                if deltas
+                else max(1, round(1000 / fps))
+            )
+            time_base = _MP4_TIME_BASE
             out_stream.time_base = time_base
 
             idx = 0
             for packet in in_container.demux(in_stream):
                 if packet.size <= 0:
                     continue
+                source_packet = packets[min(idx, len(packets) - 1)]
+                next_packet = packets[idx + 1] if idx + 1 < len(packets) else None
+                pts_ms = max(0, source_packet.wall_ms - start_ms)
+                duration_ms = (
+                    max(1, next_packet.wall_ms - source_packet.wall_ms)
+                    if next_packet is not None
+                    and next_packet.wall_ms > source_packet.wall_ms
+                    else fallback_duration_ms
+                )
                 packet.stream = out_stream
-                packet.pts = idx
-                packet.dts = idx
-                packet.duration = 1
+                packet.pts = pts_ms
+                packet.dts = pts_ms
+                packet.duration = duration_ms
                 packet.time_base = time_base
                 out_container.mux(packet)
                 idx += 1
