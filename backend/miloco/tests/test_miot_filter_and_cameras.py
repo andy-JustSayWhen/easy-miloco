@@ -1002,7 +1002,7 @@ async def test_create_camera_img_manager_passes_pin_override(_scope_proxy_env):
     mock_instance.start_async.assert_awaited_once_with(
         MIoTCameraVideoQuality.HIGH,
         enable_reconnect=True,
-        enable_audio=True,
+        enable_audio=False,
         pin_code="1518",
     )
 
@@ -1032,7 +1032,7 @@ async def test_create_camera_img_manager_passes_video_quality_override(
     mock_instance.start_async.assert_awaited_once_with(
         MIoTCameraVideoQuality.LOW,
         enable_reconnect=True,
-        enable_audio=True,
+        enable_audio=False,
         pin_code=None,
     )
 
@@ -1055,7 +1055,7 @@ async def test_create_camera_img_manager_defaults_to_no_pin(_scope_proxy_env):
     mock_instance.start_async.assert_awaited_once_with(
         MIoTCameraVideoQuality.HIGH,
         enable_reconnect=True,
-        enable_audio=True,
+        enable_audio=False,
         pin_code=None,
     )
 
@@ -1328,6 +1328,7 @@ async def test_handler_destroy_routes_through_manager_evict():
     instance = MagicMock()
     instance.unregister_decode_jpg_async = AsyncMock()
     instance.unregister_raw_video_async = AsyncMock()
+    instance.unregister_raw_video_packet_async = AsyncMock()
     instance.unregister_raw_audio_async = AsyncMock()
     instance.register_decode_jpg_async = AsyncMock()
     instance.destroy_async = AsyncMock()
@@ -1352,6 +1353,7 @@ async def test_handler_destroy_routes_through_manager_evict():
     # unregister callbacks 仍需调用（在 destroy_camera_async 之前，拆除 callback 引用）
     instance.unregister_decode_jpg_async.assert_awaited_once()
     instance.unregister_raw_video_async.assert_awaited_once()
+    instance.unregister_raw_video_packet_async.assert_awaited_once()
     instance.unregister_raw_audio_async.assert_awaited_once()
 
 
