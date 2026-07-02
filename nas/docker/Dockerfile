@@ -32,7 +32,8 @@ COPY .build-payload/ /opt/easy-miloco/runtime/
 RUN set -eux; \
     if [ -s /opt/easy-miloco/runtime/install.sh ] \
         && [ -s /opt/easy-miloco/runtime/manifest.json ] \
-        && find /opt/easy-miloco/runtime -maxdepth 1 -type f -name 'miloco-linux-*.tar.gz' | grep -q .; then \
+        && find /opt/easy-miloco/runtime -maxdepth 1 -type f -name 'miloco-linux-*.tar.gz' | grep -q . \
+        && find /opt/easy-miloco/runtime -maxdepth 1 -type f -name 'miloco-openclaw-plugin-*.tgz' | grep -q .; then \
       echo "Using prebuilt Miloco runtime payload from Docker build context"; \
     else \
       echo "Prebuilt payload missing; downloading release zip: $MILOCO_RELEASE_ZIP_URL"; \

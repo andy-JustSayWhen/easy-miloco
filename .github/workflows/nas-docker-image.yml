@@ -71,6 +71,7 @@ jobs:
           mkdir -p nas/docker/.build-payload/models
           cp dist/install.sh dist/manifest.json nas/docker/.build-payload/
           cp "dist/miloco-linux-x86_64-${payload_version}.tar.gz" nas/docker/.build-payload/
+          cp dist/miloco-openclaw-plugin-*.tgz nas/docker/.build-payload/
           cp backend/miloco/src/miloco/perception/models/* nas/docker/.build-payload/models/
           ls -lh nas/docker/.build-payload
 

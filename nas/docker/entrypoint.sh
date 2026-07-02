@@ -380,6 +380,31 @@ configure_runtime_ports() {
   fi
 }
 
+find_openclaw_plugin_tgz() {
+  find "$RUNTIME_DIR" "$MILOCO_HOME/.install-cache" -type f -name "miloco-openclaw-plugin-*.tgz" 2>/dev/null | head -n 1
+}
+
+install_openclaw_plugin() {
+  local tgz
+  tgz="$(find_openclaw_plugin_tgz || true)"
+  if [ -z "$tgz" ]; then
+    warn "No bundled miloco-openclaw-plugin tgz found; /miloco/webhook will be unavailable."
+    return
+  fi
+
+  log "Installing OpenClaw Miloco plugin"
+  if ! openclaw plugins install --force "$tgz" >/tmp/easy-miloco-openclaw-plugin-install.log 2>&1; then
+    warn "OpenClaw plugin install failed; see /tmp/easy-miloco-openclaw-plugin-install.log"
+    tail -n 80 /tmp/easy-miloco-openclaw-plugin-install.log 2>/dev/null || true
+    return
+  fi
+
+  openclaw config set 'plugins.entries["miloco-openclaw-plugin"].enabled' true >/tmp/easy-miloco-openclaw-plugin-enable.log 2>&1 \
+    || warn "Failed to enable miloco-openclaw-plugin."
+  openclaw config set 'plugins.entries["miloco-openclaw-plugin"].hooks.allowConversationAccess' true >>/tmp/easy-miloco-openclaw-plugin-enable.log 2>&1 \
+    || warn "Failed to enable miloco-openclaw-plugin conversation access."
+}
+
 nas_host_hint() {
   if [ -n "${NAS_HOST:-}" ]; then
     printf '%s' "$NAS_HOST"
@@ -867,7 +892,7 @@ ensure_miloco_service() {
 }
 
 validate_runtime() {
-  local pass=0 warn_count=0 fail=0 http_code
+  local pass=0 warn_count=0 fail=0 http_code openclaw_token webhook_body
   printf '== easy-miloco NAS Docker validation ==\n'
 
   if curl -fsS -m 5 "http://127.0.0.1:${MILOCO_PORT}/health" >/tmp/easy-miloco-health.json 2>/dev/null; then
@@ -892,6 +917,20 @@ validate_runtime() {
     pass=$((pass + 1))
   else
     printf '[FAIL] openclaw.chat HTTP %s\n' "${http_code:-none}"
+    fail=$((fail + 1))
+  fi
+
+  openclaw_token="$(openclaw_token)"
+  webhook_body="$(curl -sS -m 5 -X POST \
+    -H "Authorization: Bearer ${openclaw_token}" \
+    -H "Content-Type: application/json" \
+    -d '{"action":"__probe__","payload":{}}' \
+    "http://127.0.0.1:${OPENCLAW_PORT}/miloco/webhook" 2>/dev/null || true)"
+  if printf '%s' "$webhook_body" | grep -q "Action '__probe__' not found"; then
+    printf '[PASS] openclaw.miloco_webhook registered\n'
+    pass=$((pass + 1))
+  else
+    printf '[FAIL] openclaw.miloco_webhook %s\n' "${webhook_body:-no response}"
     fail=$((fail + 1))
   fi
 
@@ -1101,6 +1140,7 @@ main() {
   download_runtime_files
   prime_payload_cache
   sync_bundled_models
+  install_openclaw_plugin
   prepare_openclaw_public_proxy
   run_agent_prepare_once
   configure_miloco_model_config
