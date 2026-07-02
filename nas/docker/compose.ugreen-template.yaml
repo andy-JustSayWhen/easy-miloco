@@ -40,4 +40,4 @@ services:
       OPENCLAW_CHAT_API: ""  ## 正常留空；排障才填 "openai-completions"、"anthropic-messages"、"openai-responses"
 
     volumes:
-      - </volume1/docker/miloco>:/data  ## 容器数据路径，把<>内的路径，连同符号<>都替换掉，改为你的真实路径。右侧 :/data 不要改
+      - <创建一个文件夹，右键复制路径，粘贴到这里>:/data  ## 容器数据路径，替换<>内的路径占位符，记得删除占位符号<>，改为你的真实路径。右侧 :/data 不要改。示例：/volume1/docker/miloco-test:/data
