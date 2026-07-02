@@ -67,6 +67,9 @@ def test_diagnosis_input_contains_runtime_perf_and_config(monkeypatch):
     assert payload["performance"]["stage_p95"]["omni_ms"]["p95"] == 3500
     assert payload["performance"]["summary"]["drop_rate"] == 0.2
     assert "camera.frame_interval" in payload["config"]
+    assert "perception.engine.input.period_sec" in payload["config"]
+    assert "perception.engine.gate.hold_duration_sec" in payload["config"]
+    assert payload["config_schema"]["perception.collect.window_size"]["max"] == 60
     assert payload["target"]["requires_backend_restart"] is True
 
 
@@ -77,18 +80,40 @@ def test_validate_agent_json_rejects_non_json():
     assert "non-JSON" in exc.value.detail
 
 
-def test_validate_agent_json_rejects_unknown_config_path():
+def test_validate_agent_json_sanitizes_invalid_recommendations():
     body = {
         "summary": "CPU bound",
         "bottlenecks": ["decode"],
         "recommended_preset": "low_power",
-        "recommended_config": {"server.token": "leak"},
+        "recommended_config": {
+            "server.token": "leak",
+            "perception.engine.input.omni_fps": 0,
+            "perception.collect.window_size": 90,
+            "perception.engine.input.period_sec": 30,
+            "perception.engine.gate.hold_duration_sec": 0,
+        },
         "expected_tradeoffs": ["less history"],
         "risk_level": "medium",
         "requires_backend_restart": True,
     }
+
+    result = pt.validate_diagnosis_output(json.dumps(body))
+
+    assert result["recommended_config"] == {
+        "perception.engine.input.omni_fps": 1,
+        "perception.collect.window_size": 60,
+        "perception.engine.input.period_sec": 30,
+        "perception.engine.gate.hold_duration_sec": 0.0,
+    }
+    assert "warnings" in result
+    assert any("unsupported config path ignored" in item for item in result["warnings"])
+    assert any("adjusted from 0 to minimum 1" in item for item in result["warnings"])
+    assert any("adjusted from 90 to maximum 60" in item for item in result["warnings"])
+
+
+def test_apply_still_rejects_unknown_config_path():
     with pytest.raises(HTTPException) as exc:
-        pt.validate_diagnosis_output(json.dumps(body))
+        pt.apply_performance_config({"server.token": "leak"})
     assert exc.value.status_code == 422
     assert "unsupported config path" in exc.value.detail
 

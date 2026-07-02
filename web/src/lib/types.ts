@@ -632,6 +632,7 @@ export interface PerformanceDiagnosis {
   expected_tradeoffs: string[];
   risk_level: string;
   requires_backend_restart: true;
+  warnings?: string[];
   run_id?: string;
   trace_id?: string;
   webhook_rtt_ms?: number;

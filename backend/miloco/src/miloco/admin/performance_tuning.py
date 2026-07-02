@@ -80,9 +80,9 @@ CONFIG_SPECS: tuple[ConfigSpec, ...] = (
         "Collect window size",
         "Perception collection window length in seconds.",
         2,
-        12,
+        60,
         1,
-        impact="Larger windows reduce scheduling pressure but increase latency.",
+        impact="Larger windows reduce scheduling pressure and Omni frequency but increase latency.",
     ),
     ConfigSpec(
         "perception.collect.max_windows",
@@ -121,6 +121,26 @@ CONFIG_SPECS: tuple[ConfigSpec, ...] = (
         4,
         1,
         impact="Lower values reduce Omni payload and latency.",
+    ),
+    ConfigSpec(
+        "perception.engine.input.period_sec",
+        "integer",
+        "Pipeline period",
+        "Seconds between perception pipeline cycles.",
+        4,
+        60,
+        1,
+        impact="Higher values reduce steady CPU and Omni calls but make perception less real-time.",
+    ),
+    ConfigSpec(
+        "perception.engine.gate.hold_duration_sec",
+        "number",
+        "Gate hold duration",
+        "Seconds to keep visual analysis active after a gate pass.",
+        0,
+        360,
+        1,
+        impact="Lower values stop long video hold bursts; 0 is safest for low-end NAS.",
     ),
     ConfigSpec(
         "perception.engine.identity.tracking_service_mode",
@@ -306,6 +326,47 @@ def _validate_values(values: dict[str, Any]) -> dict[str, ConfigValue]:
     return validated
 
 
+def _sanitize_recommended_values(
+    values: dict[str, Any],
+) -> tuple[dict[str, ConfigValue], list[str]]:
+    sanitized: dict[str, ConfigValue] = {}
+    warnings: list[str] = []
+    for path, value in values.items():
+        spec = SPEC_BY_PATH.get(path)
+        if spec is None:
+            warnings.append(f"{path}: unsupported config path ignored")
+            continue
+        adjusted = value
+        if (
+            spec.type in {"integer", "number"}
+            and not isinstance(value, bool)
+            and isinstance(value, (int, float))
+        ):
+            if spec.minimum is not None and adjusted < spec.minimum:
+                warnings.append(
+                    f"{path}: adjusted from {value} to minimum {spec.minimum:g}"
+                )
+                adjusted = (
+                    int(spec.minimum)
+                    if spec.type == "integer"
+                    else float(spec.minimum)
+                )
+            if spec.maximum is not None and adjusted > spec.maximum:
+                warnings.append(
+                    f"{path}: adjusted from {value} to maximum {spec.maximum:g}"
+                )
+                adjusted = (
+                    int(spec.maximum)
+                    if spec.type == "integer"
+                    else float(spec.maximum)
+                )
+        try:
+            sanitized[path] = _coerce_value(spec, adjusted)
+        except ValueError as e:
+            warnings.append(f"{path}: invalid value ignored ({e})")
+    return sanitized, warnings
+
+
 def build_performance_config_payload() -> dict[str, Any]:
     settings = _settings_dict()
     params = []
@@ -407,6 +468,16 @@ def build_diagnosis_input(request: Request) -> dict[str, Any]:
             item["path"]: item["value"]
             for item in build_performance_config_payload()["params"]
         },
+        "config_schema": {
+            item["path"]: {
+                "type": item["type"],
+                "min": item["min"],
+                "max": item["max"],
+                "options": item["options"],
+                "impact": item["impact"],
+            }
+            for item in build_performance_config_payload()["params"]
+        },
         "target": {
             "cpu": "Miloco process CPU below 50% of host total CPU capacity",
             "ram": "Miloco RSS below 50% of host total memory",
@@ -457,7 +528,18 @@ def validate_diagnosis_output(text: str) -> dict[str, Any]:
             status_code=502,
             detail="OpenClaw Agent recommended_config must be an object",
         )
-    data["recommended_config"] = _validate_values(data["recommended_config"])
+    recommended_config, warnings = _sanitize_recommended_values(
+        data["recommended_config"]
+    )
+    if not recommended_config and data["recommended_config"]:
+        raise HTTPException(
+            status_code=502,
+            detail="OpenClaw Agent recommended_config had no usable values after validation",
+        )
+    data["recommended_config"] = recommended_config
+    if warnings:
+        existing = data.get("warnings")
+        data["warnings"] = (existing if isinstance(existing, list) else []) + warnings
     for key in ("bottlenecks", "expected_tradeoffs"):
         if not isinstance(data.get(key), list):
             raise HTTPException(
@@ -474,6 +556,10 @@ def _diagnosis_prompt(payload: dict[str, Any]) -> str:
         "recommended_config:object, expected_tradeoffs:string[], risk_level:string, "
         "requires_backend_restart:true.\n"
         "Only use keys from the provided config object in recommended_config. "
+        "Every recommended_config value must fit config_schema min/max/options. "
+        "For low-end NAS, prefer period_sec 30-60, window_size 30-60, hold_duration_sec 0-30, "
+        "input.fps 1, omni_fps 1, identity_engine.enabled false, and tracking_service_mode mock "
+        "when CPU is far over budget. "
         "Target: keep Miloco under 50% host CPU capacity and 50% host memory while preserving "
         "camera perception, identity recognition, and Omni where possible.\n\n"
         f"INPUT_JSON:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"

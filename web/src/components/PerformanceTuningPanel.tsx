@@ -46,9 +46,9 @@ const PARAM_COPY: Record<string, ParamCopy> = {
   "perception.collect.window_size": {
     zh: "单次感知窗口长度",
     en: "Collect window size",
-    hint: "窗口越短，每次送给 Omni 的图片越少，延迟和负载更低。",
+    hint: "低配 NAS 建议 30-60 秒，用更慢的刷新换稳定。",
     purpose: "控制一次视觉分析会打包多少个时间片。",
-    effect: "调小后 Omni 压力下降，但场景描述可能少一些上下文。",
+    effect: "调大后分析次数减少，CPU 更稳，但发现变化会更慢。",
   },
   "perception.collect.max_windows": {
     zh: "最多排队窗口数",
@@ -77,6 +77,20 @@ const PARAM_COPY: Record<string, ParamCopy> = {
     hint: "越低越省 Omni 推理时间和 token，通常 1 就够。",
     purpose: "控制每秒最多送多少帧给多模态模型分析。",
     effect: "调低后模型调用更轻，但细节变化可能被跳过。",
+  },
+  "perception.engine.input.period_sec": {
+    zh: "感知处理间隔",
+    en: "Pipeline period",
+    hint: "低配 NAS 建议 30-60 秒；数值越大，后台越不容易持续满载。",
+    purpose: "控制 Miloco 多久跑一次完整视觉感知流程。",
+    effect: "调大后 CPU 和 Omni 调用次数会下降，但家里变化会更晚被分析。",
+  },
+  "perception.engine.gate.hold_duration_sec": {
+    zh: "画面变化保持时长",
+    en: "Gate hold duration",
+    hint: "低配 NAS 建议 0-30 秒；0 表示不把一次变化延长成持续视频分析。",
+    purpose: "控制画面刚有变化后，Miloco 继续保持视觉分析的时间。",
+    effect: "调小后能阻止长时间视频/Omni 堆积，但连续慢动作可能被拆散。",
   },
   "perception.engine.identity.tracking_service_mode": {
     zh: "身份跟踪模式",
@@ -207,12 +221,34 @@ function statusText(over: boolean): string {
   return over ? "超预算" : "正常";
 }
 
+function budgetCardTone(over: boolean): string {
+  return over
+    ? "border-error bg-error-bg text-text-primary"
+    : "border-success bg-success-bg text-text-primary";
+}
+
+function readableNoticeTone(kind: "warning" | "info" | "brand"): string {
+  if (kind === "warning") {
+    return "border-warning bg-warning-bg text-text-primary";
+  }
+  if (kind === "info") {
+    return "border-info bg-info-bg text-text-primary";
+  }
+  return "border-brand-primary/40 bg-brand-soft text-text-primary";
+}
+
 function tradeoffText(path: string): string {
   if (path === "perception.engine.input.fps") {
     return "摄像头感知刷新会变慢，但 CPU 会明显下降。";
   }
   if (path === "perception.collect.window_size") {
-    return "每次分析的画面更少，细节描述会少一些。";
+    return "后台分析频率会降低，CPU 更稳，但感知刷新更慢。";
+  }
+  if (path === "perception.engine.input.period_sec") {
+    return "感知会按更长间隔运行，CPU 明显下降，但不是实时看家。";
+  }
+  if (path === "perception.engine.gate.hold_duration_sec") {
+    return "减少持续视频分析，避免 Omni 堆积，但连续变化的上下文会变少。";
   }
   if (path === "perception.collect.max_windows") {
     return "积压窗口会更快被丢弃，优先保证系统不卡死。";
@@ -291,9 +327,7 @@ function BudgetCard({
 }) {
   return (
     <div
-      className={`rounded-lg border p-4 space-y-3 ${
-        over ? "border-error bg-error-bg" : "border-success bg-success-bg"
-      }`}
+      className={`rounded-lg border p-4 space-y-3 ${budgetCardTone(over)}`}
     >
       <div className="flex items-center justify-between gap-3">
         <div className="text-caption text-text-secondary">{title}</div>
@@ -334,7 +368,7 @@ function RestartOverlay({
           请等 1-3 分钟，不要重复点击按钮。页面会每 2 秒自动检测后端是否恢复，
           恢复后会自动刷新当前性能数据。
         </p>
-        <div className="rounded-lg bg-info-bg border border-info px-3 py-2 text-caption text-text-secondary">
+        <div className={`rounded-lg px-3 py-2 text-caption ${readableNoticeTone("info")}`}>
           {restartWaiting
             ? `正在自动检测第 ${pollAttempt || 1} 次...`
             : "正在写入配置并准备重启..."}
@@ -402,13 +436,16 @@ export function PerformanceTuningPanel({
 
   const runDiagnosis = async () => {
     setDiagnosing(true);
-    setMessage(null);
+    setMessage("正在诊断中，OpenClaw Agent 可能需要 30-60 秒，请不要重复点击。");
     try {
       const result = await diagnosePerformance();
       setDiagnosis(result);
       setUserTouchedDraft(true);
       setDraft((prev) => ({ ...prev, ...result.recommended_config }));
-      setMessage(t("perf.tuningDiagnosisReady"));
+      const warningSuffix = result.warnings?.length
+        ? ` 已自动修正 ${result.warnings.length} 个越界推荐值。`
+        : "";
+      setMessage(`${t("perf.tuningDiagnosisReady")}${warningSuffix}`);
     } catch (e) {
       setMessage(e instanceof Error ? e.message : String(e));
     } finally {
@@ -492,8 +529,8 @@ export function PerformanceTuningPanel({
             budgetLine={`低配目标：不超过 ${budget.cpu_budget_pct.toFixed(1)}%`}
             ratio={fmtPct(budget.cpu_ratio)}
             over={budget.cpu_over_budget}
-            explanation="这里表示 Miloco 正在吃掉多少宿主 CPU。超过目标时，NAS 会明显变卡。"
-            action="建议先降低感知输入帧率、感知窗口和身份识别频率。"
+            explanation="这就是 Miloco 让 NAS 忙到什么程度。超过目标时，网页会慢、SSH 会卡，摄像头分析也会排队。"
+            action="处理办法：把感知输入帧率降到 1，把处理间隔拉长，并关闭重身份识别。"
           />
           <BudgetCard
             title={t("perf.tuningRamBudget")}
@@ -501,8 +538,8 @@ export function PerformanceTuningPanel({
             budgetLine={`低配目标：不超过 ${fmtMb(budget.memory_budget_mb)}`}
             ratio={fmtPct(budget.memory_ratio)}
             over={budget.memory_over_budget}
-            explanation={`这里表示 Miloco 当前占用内存，宿主总内存约 ${fmtMb(budget.host_total_memory_mb)}。`}
-            action="建议先减少缓存图片、排队窗口和历史保留天数。"
+            explanation={`这是 Miloco 占用的内存。宿主总内存约 ${fmtMb(budget.host_total_memory_mb)}，超过目标后系统会开始抢内存。`}
+            action="处理办法：减少缓存图片、排队窗口和历史保留天数。"
           />
         </div>
       ) : (
@@ -514,7 +551,7 @@ export function PerformanceTuningPanel({
       <div
         className={`rounded-lg border px-3 py-3 ${
           budget?.cpu_over_budget || budget?.memory_over_budget
-            ? "border-warning bg-warning-bg"
+            ? readableNoticeTone("warning")
             : "border-border bg-bg-primary"
         }`}
       >
@@ -570,6 +607,12 @@ export function PerformanceTuningPanel({
             </summary>
             <p className="mt-2 leading-relaxed">{diagnosis.summary}</p>
           </details>
+          {diagnosis.warnings?.length ? (
+            <div className={`rounded-lg px-3 py-2 text-caption ${readableNoticeTone("warning")}`}>
+              Agent 推荐里有越界值，已按面板支持范围自动修正：
+              {diagnosis.warnings.slice(0, 3).join("；")}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -580,7 +623,7 @@ export function PerformanceTuningPanel({
       ) : null}
 
       {dirty ? (
-        <div className="rounded-lg border border-brand-primary/30 bg-brand-soft px-3 py-2 text-caption text-text-secondary">
+        <div className={`rounded-lg px-3 py-2 text-caption ${readableNoticeTone("brand")}`}>
           <span className="font-medium text-text-primary">
             {t("perf.tuningPendingCount", { count: pendingCount })}
           </span>
@@ -620,7 +663,7 @@ export function PerformanceTuningPanel({
               key={param.path}
               className={`grid grid-cols-1 lg:grid-cols-[minmax(220px,1fr)_120px_minmax(180px,220px)_minmax(280px,1.4fr)] gap-3 rounded-lg border p-3 ${
                 changed
-                  ? "border-brand-primary bg-brand-soft"
+                  ? readableNoticeTone("brand")
                   : "border-border bg-bg-primary"
               }`}
             >
