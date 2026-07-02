@@ -626,6 +626,7 @@ async def test_query_omni_error_preserves_video_encode_stats():
         "study-room/reencode": 0.0,
         "study-room/input_packets": 2.0,
         "study-room/output_bytes": 1234.0,
+        "study-room/h265_remux_skipped": 0.0,
     }
 
 
@@ -790,6 +791,7 @@ def test_record_omni_video_encode_stats_uses_numeric_trace_fields():
         "omni_video_cam1_reencode": 0.0,
         "omni_video_cam1_input_packets": 900.0,
         "omni_video_cam1_output_bytes": 123456.0,
+        "omni_video_cam1_h265_remux_skipped": 0.0,
     }
 
 
@@ -808,6 +810,7 @@ def test_omni_video_encode_stats_dict_uses_numeric_fields():
         "reencode": 1.0,
         "input_packets": 900.0,
         "output_bytes": 456789.0,
+        "h265_remux_skipped": 0.0,
     }
 
 

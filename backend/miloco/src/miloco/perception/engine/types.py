@@ -234,6 +234,7 @@ class OmniVideoEncodeStats:
     reencode: int = 0
     input_packets: int = 0
     output_bytes: int = 0
+    h265_remux_skipped: int = 0
 
 
 @dataclass

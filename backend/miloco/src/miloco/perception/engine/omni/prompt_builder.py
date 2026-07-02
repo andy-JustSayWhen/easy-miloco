@@ -1164,6 +1164,7 @@ def _encode_video(identity_packet: IdentityPacket) -> str | None:
         identity_packet.video_encode_stats = OmniVideoEncodeStats(
             remux_fallback=1,
             input_packets=len(identity_packet.encoded_video),
+            h265_remux_skipped=int(identity_packet.encoded_video[0].codec == "h265"),
         )
         logger.info(
             "event=omni_video_remux_fallback packets=%d fps=%d",

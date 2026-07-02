@@ -169,6 +169,7 @@ class TestBuildPrompt:
         assert ep.video_encode_stats.reencode == 0
         assert ep.video_encode_stats.input_packets == 1
         assert ep.video_encode_stats.output_bytes == len(b"mp4-bytes")
+        assert ep.video_encode_stats.h265_remux_skipped == 0
 
     def test_encode_video_falls_back_when_remux_fails(self):
         ep = _mock_edge_packet()
@@ -207,6 +208,44 @@ class TestBuildPrompt:
         assert ep.video_encode_stats.remux_fallback == 1
         assert ep.video_encode_stats.reencode == 1
         assert ep.video_encode_stats.input_packets == 1
+        assert ep.video_encode_stats.h265_remux_skipped == 0
+
+    def test_encode_video_marks_h265_remux_skip_when_falling_back(self):
+        ep = _mock_edge_packet()
+        ep.trigger = GateTrigger(
+            visual_changed=True,
+            visual_change_score=1.0,
+            audio_active=False,
+            audio_energy_level=0.0,
+        )
+        ep.encoded_video = [
+            EncodedVideoPacket(
+                codec="h265",
+                data=b"raw-h265",
+                stream_ts=0,
+                wall_ms=0,
+                is_keyframe=True,
+            )
+        ]
+
+        with (
+            patch(
+                "miloco.perception.engine.omni.prompt_builder.remux_encoded_video_to_mp4",
+                return_value=None,
+            ),
+            patch(
+                "miloco.perception.engine.omni.prompt_builder._encode_video_mp4",
+                return_value="fallback",
+            ),
+        ):
+            encoded = _encode_video(ep)
+
+        assert encoded == "fallback"
+        assert ep.video_encode_stats is not None
+        assert ep.video_encode_stats.remux_fallback == 1
+        assert ep.video_encode_stats.reencode == 1
+        assert ep.video_encode_stats.input_packets == 1
+        assert ep.video_encode_stats.h265_remux_skipped == 1
 
     def test_encode_video_records_reencode_when_no_raw_packets(self):
         ep = _mock_edge_packet()
@@ -223,6 +262,7 @@ class TestBuildPrompt:
         assert ep.video_encode_stats.remux_fallback == 0
         assert ep.video_encode_stats.reencode == 1
         assert ep.video_encode_stats.input_packets == 0
+        assert ep.video_encode_stats.h265_remux_skipped == 0
 
     def test_system_prompt_includes_schema(self):
         """Realtime 路径 system prompt 包含 JSON schema。"""

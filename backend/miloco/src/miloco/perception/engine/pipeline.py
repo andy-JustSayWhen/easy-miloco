@@ -123,6 +123,7 @@ def _record_omni_video_encode_stats(
     timing[f"{prefix}reencode"] = float(stats.reencode)
     timing[f"{prefix}input_packets"] = float(stats.input_packets)
     timing[f"{prefix}output_bytes"] = float(stats.output_bytes)
+    timing[f"{prefix}h265_remux_skipped"] = float(stats.h265_remux_skipped)
 
 
 def _omni_video_encode_stats_dict(packet: IdentityPacket) -> dict[str, float] | None:
@@ -135,6 +136,7 @@ def _omni_video_encode_stats_dict(packet: IdentityPacket) -> dict[str, float] | 
         "reencode": float(stats.reencode),
         "input_packets": float(stats.input_packets),
         "output_bytes": float(stats.output_bytes),
+        "h265_remux_skipped": float(stats.h265_remux_skipped),
     }
 
 
