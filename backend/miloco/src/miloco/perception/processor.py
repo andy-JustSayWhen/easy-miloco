@@ -425,6 +425,16 @@ class PipelineProcessor:
                     timing_detail["encoded_video_packets"] = float(
                         batch.encoded_video_packet_count
                     )
+                if batch.raw_encoded_video_packet_count:
+                    timing_detail["raw_encoded_video_packets"] = float(
+                        batch.raw_encoded_video_packet_count
+                    )
+                    timing_detail["raw_encoded_video_keyframes"] = float(
+                        batch.raw_encoded_video_keyframe_count
+                    )
+                    timing_detail["raw_encoded_video_window_packets"] = float(
+                        batch.raw_encoded_video_window_packet_count
+                    )
 
                 latency = PerceptionLatency(
                     in_delay_ms=in_delay_s * 1000,

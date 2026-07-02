@@ -19,6 +19,9 @@ import av
 
 EncodedVideoCodec = Literal["h264", "h265"]
 
+_H264_IDR_NAL_TYPE = 5
+_H265_RANDOM_ACCESS_NAL_TYPES = frozenset(range(16, 22))
+
 
 @dataclass(frozen=True)
 class EncodedVideoPacket:
@@ -30,6 +33,83 @@ class EncodedVideoPacket:
     wall_ms: int
     sequence: int = 0
     is_keyframe: bool = False
+
+
+def _iter_annex_b_nal_headers(data: bytes) -> list[int]:
+    """Return NAL header byte offsets from an Annex-B byte stream."""
+
+    headers: list[int] = []
+    pos = 0
+    data_len = len(data)
+    while pos + 3 <= data_len:
+        start_len = 0
+        if data[pos : pos + 3] == b"\x00\x00\x01":
+            start_len = 3
+        elif pos + 4 <= data_len and data[pos : pos + 4] == b"\x00\x00\x00\x01":
+            start_len = 4
+        if start_len:
+            header_pos = pos + start_len
+            if header_pos < data_len:
+                headers.append(header_pos)
+            pos = header_pos + 1
+            continue
+        pos += 1
+    return headers
+
+
+def _iter_length_prefixed_nal_headers(data: bytes) -> list[int]:
+    """Return NAL header offsets from common 4-byte length-prefixed samples."""
+
+    headers: list[int] = []
+    pos = 0
+    data_len = len(data)
+    while pos + 5 <= data_len:
+        nal_len = int.from_bytes(data[pos : pos + 4], "big")
+        if nal_len <= 0 or pos + 4 + nal_len > data_len:
+            return []
+        headers.append(pos + 4)
+        pos += 4 + nal_len
+    return headers if pos == data_len else []
+
+
+def _nal_header_offsets(data: bytes) -> list[int]:
+    if not data:
+        return []
+    annex_b = _iter_annex_b_nal_headers(data)
+    if annex_b:
+        return annex_b
+    length_prefixed = _iter_length_prefixed_nal_headers(data)
+    if length_prefixed:
+        return length_prefixed
+    return [0]
+
+
+def encoded_video_packet_contains_keyframe(
+    codec: EncodedVideoCodec,
+    data: bytes,
+) -> bool:
+    """Detect whether raw H.264/H.265 packet bytes contain a keyframe.
+
+    The MiOT SDK does not reliably label I-frames for every camera model.  The
+    raw packet payload still carries NAL headers, so inspect those headers as a
+    fallback before deciding whether a slice is safe to remux for Omni upload.
+    """
+
+    for header_pos in _nal_header_offsets(data):
+        if header_pos >= len(data):
+            continue
+        first = data[header_pos]
+        if codec == "h264":
+            if first & 0x1F == _H264_IDR_NAL_TYPE:
+                return True
+            continue
+
+        if header_pos + 1 >= len(data):
+            continue
+        nal_type = (first >> 1) & 0x3F
+        if nal_type in _H265_RANDOM_ACCESS_NAL_TYPES:
+            return True
+    return False
 
 
 def select_keyframe_aligned_packets(

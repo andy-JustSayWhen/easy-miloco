@@ -1,5 +1,6 @@
 from miloco.perception.encoded_video import (
     EncodedVideoPacket,
+    encoded_video_packet_contains_keyframe,
     remux_encoded_video_to_mp4,
     select_keyframe_aligned_packets,
 )
@@ -90,6 +91,40 @@ def test_select_orders_by_wall_time_then_sequence():
     )
 
     assert [p.sequence for p in selected] == [1_500, 1, 2]
+
+
+def test_detects_h264_annex_b_idr_keyframe():
+    sps = b"\x00\x00\x00\x01\x67\x42\x00\x1f"
+    pps = b"\x00\x00\x01\x68\xce\x06\xe2"
+    idr = b"\x00\x00\x01\x65\x88\x84\x21"
+
+    assert encoded_video_packet_contains_keyframe("h264", sps + pps + idr)
+
+
+def test_rejects_h264_non_keyframe_packet():
+    p_slice = b"\x00\x00\x01\x41\x9a\x22"
+
+    assert not encoded_video_packet_contains_keyframe("h264", p_slice)
+
+
+def test_detects_h264_length_prefixed_idr_keyframe():
+    idr = b"\x65\x88\x84\x21"
+    packet = len(idr).to_bytes(4, "big") + idr
+
+    assert encoded_video_packet_contains_keyframe("h264", packet)
+
+
+def test_detects_h265_annex_b_random_access_keyframe():
+    vps = b"\x00\x00\x00\x01\x40\x01\x0c\x01"
+    idr_w_radl = b"\x00\x00\x01\x26\x01\xaf"
+
+    assert encoded_video_packet_contains_keyframe("h265", vps + idr_w_radl)
+
+
+def test_rejects_h265_non_keyframe_packet():
+    trail_r = b"\x00\x00\x01\x02\x01\xaf"
+
+    assert not encoded_video_packet_contains_keyframe("h265", trail_r)
 
 
 def test_remux_encoded_video_to_mp4_streamcopies_h264_packets(tmp_path):

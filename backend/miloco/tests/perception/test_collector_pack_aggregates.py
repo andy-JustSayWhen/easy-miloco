@@ -201,3 +201,20 @@ class TestMultiDeviceWeighting:
         _pack_batch_latency_aggregates(batch)
 
         assert batch.encoded_video_packet_count == 3
+
+    def test_raw_encoded_video_diagnostics_sum_across_devices(self):
+        cam1 = _make_device_data("cam1", video=[_video()])
+        cam2 = _make_device_data("cam2", video=[_video()])
+        cam1.raw_encoded_video_packet_count = 100
+        cam1.raw_encoded_video_keyframe_count = 2
+        cam1.raw_encoded_video_window_packet_count = 30
+        cam2.raw_encoded_video_packet_count = 50
+        cam2.raw_encoded_video_keyframe_count = 1
+        cam2.raw_encoded_video_window_packet_count = 20
+        batch = PerceptionBatch(devices={"cam1": cam1, "cam2": cam2})
+
+        _pack_batch_latency_aggregates(batch)
+
+        assert batch.raw_encoded_video_packet_count == 150
+        assert batch.raw_encoded_video_keyframe_count == 3
+        assert batch.raw_encoded_video_window_packet_count == 50

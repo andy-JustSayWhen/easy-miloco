@@ -27,12 +27,18 @@ def _pack_batch_latency_aggregates(batch: PerceptionBatch) -> None:
     """
     v_count = a_count = total = 0
     encoded_count = 0
+    raw_encoded_count = 0
+    raw_encoded_keyframe_count = 0
+    raw_encoded_window_count = 0
     v_dec_sum = a_dec_sum = 0.0
 
     for dd in batch.devices.values():
         v = len(dd.video)
         a = len(dd.audio)
         encoded_count += len(dd.encoded_video)
+        raw_encoded_count += dd.raw_encoded_video_packet_count
+        raw_encoded_keyframe_count += dd.raw_encoded_video_keyframe_count
+        raw_encoded_window_count += dd.raw_encoded_video_window_packet_count
         v_count += v
         a_count += a
         total += v + a
@@ -45,6 +51,9 @@ def _pack_batch_latency_aggregates(batch: PerceptionBatch) -> None:
     batch.video_frame_count = v_count
     batch.audio_frame_count = a_count
     batch.encoded_video_packet_count = encoded_count
+    batch.raw_encoded_video_packet_count = raw_encoded_count
+    batch.raw_encoded_video_keyframe_count = raw_encoded_keyframe_count
+    batch.raw_encoded_video_window_packet_count = raw_encoded_window_count
     batch.decode_video_avg_ms = _avg(v_dec_sum, v_count)
     batch.decode_audio_avg_ms = _avg(a_dec_sum, a_count)
     batch.decode_avg_ms = _avg(v_dec_sum + a_dec_sum, total)

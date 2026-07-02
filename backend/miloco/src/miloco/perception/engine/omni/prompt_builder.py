@@ -1140,10 +1140,21 @@ def _encode_video(identity_packet: IdentityPacket) -> str | None:
             fps=identity_packet.frame_info.fps,
         )
         if mp4_bytes:
+            logger.info(
+                "event=omni_video_remux_success packets=%d bytes=%d fps=%d",
+                len(identity_packet.encoded_video),
+                len(mp4_bytes),
+                identity_packet.frame_info.fps,
+            )
             from miloco.perception.snapshot_context import push_clip_bytes
 
             push_clip_bytes(mp4_bytes, "mp4")
             return base64.b64encode(mp4_bytes).decode()
+        logger.info(
+            "event=omni_video_remux_fallback packets=%d fps=%d",
+            len(identity_packet.encoded_video),
+            identity_packet.frame_info.fps,
+        )
 
     return _encode_video_mp4(
         frames,

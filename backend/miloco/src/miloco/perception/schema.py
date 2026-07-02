@@ -93,6 +93,9 @@ class DeviceData:
     video: list[DecodedVideoFrame] = field(default_factory=list)
     audio: list[DecodedAudioFrame] = field(default_factory=list)
     encoded_video: list[EncodedVideoPacket] = field(default_factory=list)
+    raw_encoded_video_packet_count: int = 0
+    raw_encoded_video_keyframe_count: int = 0
+    raw_encoded_video_window_packet_count: int = 0
 
     # Wall-clock time range of the collection window (ms, monotonic)
     window_start_ms: int = 0
@@ -278,6 +281,9 @@ class PerceptionBatch:
     video_frame_count: int = 0
     audio_frame_count: int = 0
     encoded_video_packet_count: int = 0
+    raw_encoded_video_packet_count: int = 0
+    raw_encoded_video_keyframe_count: int = 0
+    raw_encoded_video_window_packet_count: int = 0
     # 窗口内最早一帧到达 host 的 unix ms(端到端起点)。无 recv_unix_ms 数据时为 None。
     window_first_frame_recv_ms: int | None = None
 

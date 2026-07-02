@@ -31,6 +31,7 @@ from miloco.perception.collect.stream_buffer import (
 )
 from miloco.perception.encoded_video import (
     EncodedVideoPacket,
+    encoded_video_packet_contains_keyframe,
     select_keyframe_aligned_packets,
 )
 from miloco.perception.schema import (
@@ -71,7 +72,7 @@ _ENABLE_CAMERA_AUDIO_STREAM = False
 _DEFAULT_CACHE_FRAME_MAX_WIDTH = 1280
 _DEFAULT_CACHE_FRAME_MAX_HEIGHT = 720
 _ENCODED_VIDEO_PACKET_MAXLEN = 4096
-_ENCODED_VIDEO_MAX_PREROLL_MS = 2_000
+_ENCODED_VIDEO_MAX_PREROLL_MS = 30_000
 
 # TODO: 多通道支持
 DEFAULT_VIDEO_CHANNEL = 0
@@ -641,9 +642,15 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
 
         video = [f.data for f in dv_frags]
         audio = [f.data for f in da_frags]
+        raw_packets = list(state.encoded_video_packets)
+        raw_window_packet_count = (
+            sum(1 for packet in raw_packets if window_start_ms <= packet.wall_ms < window_end_ms)
+            if window_start_ms and window_end_ms
+            else 0
+        )
         encoded_video = (
             select_keyframe_aligned_packets(
-                list(state.encoded_video_packets),
+                raw_packets,
                 start_ms=window_start_ms,
                 end_ms=window_end_ms,
                 max_preroll_ms=_ENCODED_VIDEO_MAX_PREROLL_MS,
@@ -671,6 +678,11 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
             video=video,
             audio=audio,
             encoded_video=encoded_video,
+            raw_encoded_video_packet_count=len(raw_packets),
+            raw_encoded_video_keyframe_count=sum(
+                1 for packet in raw_packets if packet.is_keyframe
+            ),
+            raw_encoded_video_window_packet_count=raw_window_packet_count,
             window_start_ms=window_start_ms,
             window_end_ms=window_end_ms,
             window_start_unix_ms=self._wall_to_unix(state, window_start_ms),
@@ -829,13 +841,15 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
                 ts = int(getattr(frame_data, "timestamp", 0) or 0)
                 wall_ms, _unix_ms = self._calibrate(state, ts)
                 frame_type = getattr(frame_data, "frame_type", None)
+                data = bytes(getattr(frame_data, "data", b""))
                 packet = EncodedVideoPacket(
                     codec=codec,
-                    data=bytes(getattr(frame_data, "data", b"")),
+                    data=data,
                     stream_ts=ts,
                     wall_ms=wall_ms,
                     sequence=int(getattr(frame_data, "sequence", 0) or 0),
-                    is_keyframe=frame_type == MIoTCameraFrameType.FRAME_I,
+                    is_keyframe=frame_type == MIoTCameraFrameType.FRAME_I
+                    or encoded_video_packet_contains_keyframe(codec, data),
                 )
                 state.encoded_video_packets.append(packet)
 
