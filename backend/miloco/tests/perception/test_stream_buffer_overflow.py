@@ -1,4 +1,5 @@
 """MultiTrackSyncBuffer 丢包路径 + consume_drop_stats 行为。"""
+
 from __future__ import annotations
 
 from miloco.perception.collect.stream_buffer import MultiTrackSyncBuffer
@@ -25,8 +26,10 @@ def test_consume_drop_stats_initial_zero():
 
 def test_drop_action_counts_dropped_windows():
     buf = MultiTrackSyncBuffer(
-        ["video", "audio"], window_ms=100,
-        max_windows=2, window_settle_ms=50,
+        ["video", "audio"],
+        window_ms=100,
+        max_windows=2,
+        window_settle_ms=50,
         buffer_full_action="drop",
     )
     # 灌 6 个完整窗口,触发 drop:max_windows=2 → 应丢若干 window
@@ -43,8 +46,10 @@ def test_drop_action_counts_dropped_windows():
 
 def test_clear_action_resets_and_counts():
     buf = MultiTrackSyncBuffer(
-        ["video", "audio"], window_ms=100,
-        max_windows=2, window_settle_ms=50,
+        ["video", "audio"],
+        window_ms=100,
+        max_windows=2,
+        window_settle_ms=50,
         buffer_full_action="clear",
     )
     _fill_ready(buf, 6, 100)
@@ -59,8 +64,10 @@ def test_clear_action_resets_and_counts():
 def test_keep_action_no_drop_no_stats():
     """keep 模式不触发 full_action,stats 全 0。"""
     buf = MultiTrackSyncBuffer(
-        ["video", "audio"], window_ms=100,
-        max_windows=2, window_settle_ms=50,
+        ["video", "audio"],
+        window_ms=100,
+        max_windows=2,
+        window_settle_ms=50,
         buffer_full_action="keep",
     )
     _fill_ready(buf, 6, 100)
@@ -70,8 +77,10 @@ def test_keep_action_no_drop_no_stats():
 def test_max_depth_records_peak_not_last():
     """max_buffer_depth 应记触发瞬间的峰值,后续被 clear 拉低也保留峰值。"""
     buf = MultiTrackSyncBuffer(
-        ["video", "audio"], window_ms=100,
-        max_windows=2, window_settle_ms=50,
+        ["video", "audio"],
+        window_ms=100,
+        max_windows=2,
+        window_settle_ms=50,
         buffer_full_action="clear",
     )
     _fill_ready(buf, 10, 100)
@@ -81,9 +90,11 @@ def test_max_depth_records_peak_not_last():
 
 
 def test_drain_ready_returns_only_newest_window():
-    """drain 只取最新 ready 窗口送推理,中间旧窗口跳过但仍可被 peek。"""
+    """drain 只取最新 ready 窗口送推理,中间旧窗口跳过并释放。"""
     buf = MultiTrackSyncBuffer(
-        ["video"], window_ms=100, window_settle_ms=50,
+        ["video"],
+        window_ms=100,
+        window_settle_ms=50,
         buffer_full_action="keep",  # 不触发 overflow,纯验证 drain 取最新
     )
     # 窗口 0 是单 track 的 partial first-window 会被 skip;窗口 1..5 各塞一帧带编号。
@@ -101,17 +112,39 @@ def test_drain_ready_returns_only_newest_window():
     # 整个 ready_queue 一次排空,不会再逐个吐旧窗口
     assert buf.drain_ready() is None
 
-    # 跳过的旧窗口仍进 _drained,active-perception 的 peek 仍看得到(数据不丢)
+    # 为避免 keep 模式把历史解码帧无限留在 RSS 中,只保留最新 drained 窗口给
+    # active-perception / latest-frame peek 使用。
     peeked = buf.peek_latest(duration_ms=10_000)
     assert peeked is not None
     peeked_datas = {f.data for f in peeked["video"]}
-    assert b"v1" in peeked_datas
+    assert peeked_datas == {b"v5", b"trigger"}
+
+
+def test_keep_mode_drained_windows_are_bounded_after_repeated_drains():
+    """keep 模式也不能把已处理窗口无限留在 _drained 里。"""
+    buf = MultiTrackSyncBuffer(
+        ["video"],
+        window_ms=100,
+        window_settle_ms=50,
+        buffer_full_action="keep",
+    )
+
+    for w in range(20):
+        wall = w * 100 + 10
+        buf.put("video", f"v{w}".encode(), wall, wall)
+        # 推进时间让前一个非 partial 窗口 ready,再立刻 drain。
+        buf.put("video", f"tick{w}".encode(), wall + 200, wall + 200)
+        buf.drain_ready()
+
+    assert len(buf._drained) <= 1
 
 
 def test_drain_skipped_windows_counted_in_stats():
     """drain 取最新时跳过的旧窗口计入 dropped 统计,action 标 skip,供 dashboard 可见。"""
     buf = MultiTrackSyncBuffer(
-        ["video"], window_ms=100, window_settle_ms=50,
+        ["video"],
+        window_ms=100,
+        window_settle_ms=50,
         buffer_full_action="keep",  # 隔离 put 侧 overflow,纯验证 drain skip 统计
     )
     for w in range(6):
@@ -132,11 +165,13 @@ def test_drain_skipped_windows_counted_in_stats():
 def test_drain_single_window_no_skip_stats():
     """无积压(只 1 个 ready 窗口)时 drain 不产生 skip 统计。"""
     buf = MultiTrackSyncBuffer(
-        ["video"], window_ms=100, window_settle_ms=50,
+        ["video"],
+        window_ms=100,
+        window_settle_ms=50,
         buffer_full_action="keep",
     )
-    buf.put("video", b"v0", 10, 10)       # 窗口 0:partial first-window,会被 skip
-    buf.put("video", b"v1", 110, 110)     # 窗口 1
+    buf.put("video", b"v0", 10, 10)  # 窗口 0:partial first-window,会被 skip
+    buf.put("video", b"v1", 110, 110)  # 窗口 1
     buf.put("video", b"trigger", 400, 400)  # 让窗口 1 ready(仅此一个)
 
     buf.drain_ready()

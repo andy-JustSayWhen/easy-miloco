@@ -101,7 +101,10 @@ class MultiTrackSyncBuffer:
         # Ready window window_start_ms, in chronological order
         self._ready_queue: deque[int] = deque()
         self._ready_keys: set[int] = set()
-        # Recently drained windows kept for peek (active perception)
+        # Recently drained windows kept for peek (active perception).  Only the
+        # newest drained window is needed by current callers (latest perception
+        # window / latest frame); keeping every drained window turns high-res
+        # decoded frames into an unbounded native-memory sink in keep mode.
         self._drained: deque[_TimeWindow] = deque()
         # Per-track first window keys — each track's first window is partial
         # (stream starts mid-window) and must be skipped.  Tracking per-track
@@ -136,6 +139,11 @@ class MultiTrackSyncBuffer:
         if key not in self._ready_keys:
             self._ready_keys.add(key)
             self._ready_queue.append(key)
+
+    def _prune_drained_locked(self) -> None:
+        """Keep only the latest drained window for non-consuming peek callers."""
+        while len(self._drained) > 1:
+            self._drained.popleft()
 
     def _expire_old_windows(self, current_wall_ms: int) -> None:
         """Mark closed windows as ready, with a settle grace period.
@@ -239,7 +247,10 @@ class MultiTrackSyncBuffer:
                     self._last_overflow_action = "clear"
                     logger.warning(
                         "[stream_buffer] overflow → clear: ready=%d active=%d max=%d dropped=%d",
-                        ready_before, active_before, self._max_windows, dropped,
+                        ready_before,
+                        active_before,
+                        self._max_windows,
+                        dropped,
                     )
                 elif self._buffer_full_action == "drop":
                     dropped = 0
@@ -252,7 +263,10 @@ class MultiTrackSyncBuffer:
                     self._last_overflow_action = "drop"
                     logger.warning(
                         "[stream_buffer] overflow → drop: ready=%d active=%d max=%d dropped=%d",
-                        ready_before, active_before, self._max_windows, dropped,
+                        ready_before,
+                        active_before,
+                        self._max_windows,
+                        dropped,
                     )
 
         if should_signal and self._on_window_ready:
@@ -287,6 +301,7 @@ class MultiTrackSyncBuffer:
                 if win is None:
                     continue
                 self._drained.append(win)
+                self._prune_drained_locked()
                 drained_count += 1
                 if key == newest_key:
                     newest_win = win
@@ -301,10 +316,6 @@ class MultiTrackSyncBuffer:
                 self._last_overflow_action = "skip"
                 if drained_count > self._max_depth_since_drain:
                     self._max_depth_since_drain = drained_count
-
-            if self._buffer_full_action != "keep":
-                while len(self._drained) > self._max_windows:
-                    self._drained.popleft()
 
             if newest_win is None:
                 return None
