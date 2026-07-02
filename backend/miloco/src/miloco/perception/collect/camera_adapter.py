@@ -14,10 +14,11 @@ from __future__ import annotations
 import inspect
 import logging
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable
 
-from miot.types import MIoTCameraInfo
+from miot.types import MIoTCameraCodec, MIoTCameraFrameType, MIoTCameraInfo
 
 from miloco.config import get_settings
 from miloco.miot.client import MiotProxy
@@ -27,6 +28,10 @@ from miloco.perception.collect.adapter_base import BaseDeviceAdapter
 from miloco.perception.collect.stream_buffer import (
     MultiTrackSyncBuffer,
     StreamFragment,
+)
+from miloco.perception.encoded_video import (
+    EncodedVideoPacket,
+    select_keyframe_aligned_packets,
 )
 from miloco.perception.schema import (
     DecodedAudioFrame,
@@ -65,6 +70,8 @@ _VIDEO_FRAME_STALE_MS = 30_000
 _ENABLE_CAMERA_AUDIO_STREAM = False
 _DEFAULT_CACHE_FRAME_MAX_WIDTH = 1280
 _DEFAULT_CACHE_FRAME_MAX_HEIGHT = 720
+_ENCODED_VIDEO_PACKET_MAXLEN = 4096
+_ENCODED_VIDEO_MAX_PREROLL_MS = 2_000
 
 # TODO: 多通道支持
 DEFAULT_VIDEO_CHANNEL = 0
@@ -82,6 +89,10 @@ class _CameraDeviceState:
     # Registration IDs for multi-reg decoded frame callbacks
     decoded_video_reg_id: int = -1
     decoded_audio_reg_id: int = -1
+    raw_packet_reg_id: int = -1
+    encoded_video_packets: deque[EncodedVideoPacket] = field(
+        default_factory=lambda: deque(maxlen=_ENCODED_VIDEO_PACKET_MAXLEN)
+    )
     # Clock calibration: epoch_delta = unix_ms - monotonic_ms (locked on first frame)
     # Used to convert monotonic wall_ms to unix timestamps for display.
     epoch_delta: int | None = None
@@ -445,6 +456,18 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
         except Exception as e:
             logger.error("Failed to subscribe decoded video for %s: %s", did, e)
 
+        start_raw_packet_stream = getattr(
+            self._miot_proxy, "start_camera_raw_packet_stream", None
+        )
+        if inspect.iscoroutinefunction(start_raw_packet_stream):
+            try:
+                reg_id = await start_raw_packet_stream(
+                    did, DEFAULT_VIDEO_CHANNEL, self._make_raw_packet_callback(did)
+                )
+                state.raw_packet_reg_id = reg_id
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Failed to subscribe raw video packets for %s: %s", did, e)
+
         # Realtime home perception currently needs video frames. Some Xiaomi
         # cameras repeatedly emit undecodable G711A audio frames, which can
         # destabilize the backend while adding no value to visual camera status.
@@ -494,6 +517,20 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
             except Exception as e:
                 logger.error("Failed to unsubscribe decoded audio for %s: %s", did, e)
 
+        stop_raw_packet_stream = getattr(
+            self._miot_proxy, "stop_camera_raw_packet_stream", None
+        )
+        if state.raw_packet_reg_id >= 0 and inspect.iscoroutinefunction(
+            stop_raw_packet_stream
+        ):
+            try:
+                await stop_raw_packet_stream(
+                    did, DEFAULT_VIDEO_CHANNEL, state.raw_packet_reg_id
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.error("Failed to unsubscribe raw video packets for %s: %s", did, e)
+
+        state.encoded_video_packets.clear()
         state.sync_buffer.clear()
 
     def collect(self, did: str, *, drain: bool = True) -> DeviceData | None:
@@ -604,6 +641,16 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
 
         video = [f.data for f in dv_frags]
         audio = [f.data for f in da_frags]
+        encoded_video = (
+            select_keyframe_aligned_packets(
+                list(state.encoded_video_packets),
+                start_ms=window_start_ms,
+                end_ms=window_end_ms,
+                max_preroll_ms=_ENCODED_VIDEO_MAX_PREROLL_MS,
+            )
+            if window_start_ms and window_end_ms
+            else []
+        )
 
         v_count = len(video)
         a_count = len(audio)
@@ -623,6 +670,7 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
             meta=self._current_source(state.did),
             video=video,
             audio=audio,
+            encoded_video=encoded_video,
             window_start_ms=window_start_ms,
             window_end_ms=window_end_ms,
             window_start_unix_ms=self._wall_to_unix(state, window_start_ms),
@@ -756,6 +804,42 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
                 )
 
         return _on_decoded_video
+
+    def _make_raw_packet_callback(self, did: str):
+        """Raw encoded video packet callback for future low-CPU remux path."""
+
+        async def _on_raw_packet(frame_data: Any):
+            async with get_monitor().track_async(NodeName.CAMERA, "raw_video") as h:
+                state = self._devices.get(did)
+                if not state:
+                    h.skip_rolling()
+                    return
+                codec_id = getattr(frame_data, "codec_id", None)
+                if codec_id == MIoTCameraCodec.VIDEO_H264:
+                    codec = "h264"
+                elif codec_id in (
+                    MIoTCameraCodec.VIDEO_H265,
+                    MIoTCameraCodec.VIDEO_HEVC,
+                ):
+                    codec = "h265"
+                else:
+                    h.skip_rolling()
+                    return
+
+                ts = int(getattr(frame_data, "timestamp", 0) or 0)
+                wall_ms, _unix_ms = self._calibrate(state, ts)
+                frame_type = getattr(frame_data, "frame_type", None)
+                packet = EncodedVideoPacket(
+                    codec=codec,
+                    data=bytes(getattr(frame_data, "data", b"")),
+                    stream_ts=ts,
+                    wall_ms=wall_ms,
+                    sequence=int(getattr(frame_data, "sequence", 0) or 0),
+                    is_keyframe=frame_type == MIoTCameraFrameType.FRAME_I,
+                )
+                state.encoded_video_packets.append(packet)
+
+        return _on_raw_packet
 
     def _make_decoded_audio_callback(self, did: str):
         """Decoded audio frame callback: feeds decoded_audio track in sync buffer.

@@ -462,6 +462,44 @@ class MiotProxy:
             logger.error("Failed to stop camera raw video stream: %s", e)
             raise
 
+    async def start_camera_raw_packet_stream(
+        self,
+        camera_id: str,
+        channel: int,
+        callback: Callable[[object], Coroutine],
+    ) -> int:
+        if camera_id not in self._camera_img_managers:
+            logger.warning("Camera %s not found in managers", camera_id)
+            return -1
+        instance = self._camera_img_managers[camera_id]
+        reg_id = await instance.register_raw_packet_stream(callback, channel)
+        logger.info(
+            "Started raw video packet stream, camera_id: %s, channel: %s, reg_id: %d",
+            camera_id,
+            channel,
+            reg_id,
+        )
+        return reg_id
+
+    async def stop_camera_raw_packet_stream(
+        self, camera_id: str, channel: int, reg_id: int
+    ):
+        if camera_id not in self._camera_img_managers:
+            logger.warning("Camera %s not found in managers", camera_id)
+            return
+        instance = self._camera_img_managers[camera_id]
+        try:
+            await instance.unregister_raw_packet_stream(channel, reg_id)
+            logger.info(
+                "Stopped raw video packet stream, camera_id: %s, channel: %s, reg_id: %d",
+                camera_id,
+                channel,
+                reg_id,
+            )
+        except Exception as e:
+            logger.error("Failed to stop raw video packet stream: %s", e)
+            raise
+
     async def start_camera_decode_video_stream(
         self,
         camera_id: str,

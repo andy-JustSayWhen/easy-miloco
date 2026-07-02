@@ -421,6 +421,10 @@ class PipelineProcessor:
                     timing_detail["decode_video_ms"] = batch.decode_video_avg_ms
                 if batch.audio_frame_count:
                     timing_detail["decode_audio_ms"] = batch.decode_audio_avg_ms
+                if batch.encoded_video_packet_count:
+                    timing_detail["encoded_video_packets"] = float(
+                        batch.encoded_video_packet_count
+                    )
 
                 latency = PerceptionLatency(
                     in_delay_ms=in_delay_s * 1000,

@@ -27,6 +27,10 @@ flowchart LR
 - Omni（云端多模态理解）需要把选中的帧重新编码成可上传的视频或图片格式。事件回放复用 Omni 看到的那份视频字节，不再二次编码。
 - 实时观看页面是另一条消费路径。用户打开直播预览时，可能额外增加拉流、解码或传输压力。
 
+当前已补上原始压缩视频包旁路：采集摄像头时，Miloco 可以同时保存 H.264/H.265 原始视频包和解码后的 BGR 图片帧。BGR 帧仍服务 Gate、Identity 和当前 Omni 上传路径；原始视频包先随窗口带到 `DeviceSnapshot.encoded_video`，并记录 `encoded_video_packets` 计数。这样后续可以把 Omni 上传路径从“BGR 图片帧重新编码成 MP4”替换为“原始 H.264/H.265 包 remux 成 MP4”。这一步本身只是可观测和可复用的基础能力，尚未把 Omni 上传切到 remux，所以不能把它当作已经降低运行期 CPU 的证据。
+
+二次编码的根因可以这样理解：摄像头送来的本来就是压缩视频包，解码是把它拆成图片给本地算法看；如果原始压缩包没有保留，云端要视频时只能把图片再压回视频。保留原始压缩包后，理想路径是只做 remux（重封装，只换 MP4 容器，不重新压缩画面），CPU 压力会明显低于重新编码。
+
 ## 当前压力判断
 
 NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一段在吃资源：
@@ -138,6 +142,7 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 | 第一轮-CPU | Omni 上传 mp4 编码使用 `ultrafast/zerolatency` H.264 参数；不改上传帧数、分辨率、内容，只降低编码器计算量 | `pytest backend/miloco/tests/perception/engine/omni/test_prompt_builder.py backend/miloco/tests/perception/engine/test_pipeline.py backend/miot/tests/test_units.py ... -q`：243 passed；ruff 通过；本地 `_encode_video_mp4` 可生成 payload | NAS 默认 1000ms 复验：热补丁后非跳过 Omni 窗口 CPU 约 173-176%，跳过窗口稳定期 CPU 峰值 164.0%，RSS 峰值 809.3MB（稳定跳过期 689.1MB）；窗口 52-58 帧/60s | 单路桌面摄像头默认采样质量下，运行期 CPU/RAM 已低于预算；启动后旧窗口/启动期仍可出现 300%+ 尖峰，需要单独处理或在验收口径中排除启动阶段 |
 | 第一轮-观测 | 资源监控延后并降频采集内存明细；运行期每分钟仍更新 CPU/RSS，重型 `smaps`/Python heap 明细默认 120 秒后开始、300 秒一次 | `pytest backend/miloco/tests/node_monitor/test_resource_monitor.py -q`：19 passed；`ruff check backend/miloco/src/miloco/node_monitor/resource_monitor.py backend/miloco/tests/node_monitor/test_resource_monitor.py` 通过 | NAS 默认 1000ms、一路桌面摄像头、7 分钟只读采样：CPU 峰值 172.4%（4 核宿主约 43.1%），平均 166.2%；RSS 峰值 694.0MB；覆盖 8 个 trace，其中 1 个 Omni 窗口 `omni_ms=33492.9` | 运行期观测链路不再制造明显超预算尖峰；单路默认质量在含 Omni 调用窗口下仍低于 CPU/RAM 50% 预算 |
 | 第一轮-码流复用准备 | 新增原始压缩视频包的 I 帧对齐切片模块；后续 remux 必须从 I 帧开始，否则 P 帧缺少参考画面可能无法解码 | `pytest backend/miloco/tests/perception/test_encoded_video.py -q`：4 passed；`ruff check backend/miloco/src/miloco/perception/encoded_video.py backend/miloco/tests/perception/test_encoded_video.py` 通过 | 待接入 raw_video 旁路后上 NAS 复验 | 为减少 Omni 上传前 BGR → MP4 重新编码做前置保障；当前只是可测试基础件，尚未改变运行期资源 |
+| 第一轮-码流复用准备 | MIoT SDK 增加 raw video packet 多订阅，感知采集侧保存 H.264/H.265 原始包并按窗口附到 `DeviceSnapshot.encoded_video`；性能 trace 记录 `encoded_video_packets` | `pytest backend/miloco/tests/perception/test_camera_adapter_decode_latency.py backend/miloco/tests/perception/test_encoded_video.py backend/miloco/tests/perception/test_collector_pack_aggregates.py backend/miot/tests/test_camera.py::test_raw_video_packet_multi_reg_coexists_with_legacy_raw_video -q`：33 passed；ruff 通过 | 待安全部署后复验；上轮 compose 热补丁传输方式触发容器启动失败，已恢复旧 compose，未把失败热补丁当作运行期证据 | 现在具备“同一次拉流资产可被后续上传链路复用”的代码基础；下一步是实现 PyAV/FFmpeg remux，并在 NAS 上验证 Omni 上传前编码 CPU 是否下降 |
 
 ## 当前结论（2026-07-03 NAS 实测）
 

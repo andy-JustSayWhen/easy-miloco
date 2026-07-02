@@ -17,6 +17,7 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import BaseModel, Field
 
+from miloco.perception.encoded_video import EncodedVideoPacket
 from miloco.perception.types import BatchedSnapshot, DeviceSnapshot, PerceptionDevice
 from miloco.perception.utils import snapshot_from_arrays
 
@@ -91,6 +92,7 @@ class DeviceData:
     # Decoded frames
     video: list[DecodedVideoFrame] = field(default_factory=list)
     audio: list[DecodedAudioFrame] = field(default_factory=list)
+    encoded_video: list[EncodedVideoPacket] = field(default_factory=list)
 
     # Wall-clock time range of the collection window (ms, monotonic)
     window_start_ms: int = 0
@@ -139,13 +141,15 @@ class DeviceData:
             else float(self.window_end_ms)
         )
 
-        return snapshot_from_arrays(
+        snapshot = snapshot_from_arrays(
             self.meta,
             frames=frames,
             audio=audio_clip,
             start_timestamp=start_ts,
             end_timestamp=end_ts,
         )
+        snapshot.encoded_video = list(self.encoded_video)
+        return snapshot
 
     def select_representative_frames(
         self, max_frames: int | None = None
@@ -273,6 +277,7 @@ class PerceptionBatch:
     # pipeline drop keys from timing_detail when the modality was absent.
     video_frame_count: int = 0
     audio_frame_count: int = 0
+    encoded_video_packet_count: int = 0
     # 窗口内最早一帧到达 host 的 unix ms(端到端起点)。无 recv_unix_ms 数据时为 None。
     window_first_frame_recv_ms: int | None = None
 

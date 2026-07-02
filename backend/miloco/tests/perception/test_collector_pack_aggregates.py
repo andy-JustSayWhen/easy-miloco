@@ -10,6 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from miloco.perception.collect.collector import _pack_batch_latency_aggregates
+from miloco.perception.encoded_video import EncodedVideoPacket
 from miloco.perception.schema import (
     DecodedAudioFrame,
     DecodedVideoFrame,
@@ -184,3 +185,19 @@ class TestMultiDeviceWeighting:
         # Device-count average would be (100 + 10) / 2 = 55 — WRONG.
         # Frame-count average is (100*1 + 10*9) / 10 = 190 / 10 = 19.
         assert batch.decode_avg_ms == pytest.approx(19.0)
+
+    def test_encoded_video_packet_count_sums_across_devices(self):
+        cam1 = _make_device_data("cam1", video=[_video()])
+        cam2 = _make_device_data("cam2", video=[_video()])
+        cam1.encoded_video = [
+            EncodedVideoPacket("h264", b"i", 0, 0, is_keyframe=True),
+            EncodedVideoPacket("h264", b"p", 1, 1),
+        ]
+        cam2.encoded_video = [
+            EncodedVideoPacket("h265", b"i", 0, 0, is_keyframe=True)
+        ]
+        batch = PerceptionBatch(devices={"cam1": cam1, "cam2": cam2})
+
+        _pack_batch_latency_aggregates(batch)
+
+        assert batch.encoded_video_packet_count == 3

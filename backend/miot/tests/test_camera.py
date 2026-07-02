@@ -584,6 +584,11 @@ def _bare_camera_instance() -> MIoTCameraInstance:
     ins = object.__new__(MIoTCameraInstance)
     ins._callbacks = {}
     ins._next_reg_id = 1
+    async def _noop_raw_register_status(*args, **kwargs):
+        return None
+    ins._MIoTCameraInstance__update_raw_data_register_status_async = (  # type: ignore[attr-defined]
+        _noop_raw_register_status
+    )
     return ins
 
 
@@ -622,3 +627,22 @@ async def test_reg_id_single_mode_fixed_zero():
 
     assert await ins.register_status_changed_async(cb) == 0
     assert "0" in ins._callbacks["status"]
+
+
+@pytest.mark.asyncio
+async def test_raw_video_packet_multi_reg_coexists_with_legacy_raw_video():
+    """Metadata-rich raw packet callbacks should not overwrite legacy raw_video."""
+    ins = _bare_camera_instance()
+
+    async def legacy_cb(did, data, ts, seq, channel): ...
+    async def packet_cb(frame_data): ...
+
+    legacy_id = await ins.register_raw_video_async(legacy_cb, channel=0)
+    packet_id = await ins.register_raw_video_packet_async(
+        packet_cb, channel=0, multi_reg=True
+    )
+
+    assert legacy_id == 0
+    assert packet_id > 0
+    assert ins._callbacks["raw_video.0"]["0"] is legacy_cb
+    assert ins._callbacks["raw_video_packet.0"][str(packet_id)] is packet_cb

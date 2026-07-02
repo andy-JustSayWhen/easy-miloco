@@ -320,6 +320,38 @@ class MIoTCameraInstance:
         self._callbacks[reg_key][str(reg_id)] = callback
         return reg_id
 
+    async def register_raw_video_packet_async(
+        self,
+        callback: Callable[[MIoTCameraFrameData], Coroutine],
+        channel: int = 0,
+        multi_reg: bool = False,
+    ) -> int:
+        """Register raw video packets with codec/frame metadata.
+
+        This coexists with the legacy ``raw_video`` callback, which only
+        exposes ``(did, data, ts, seq, channel)`` for API compatibility.
+        Packet consumers that need safe streamcopy/remux need the codec and
+        frame type, so they subscribe through this metadata-rich path.
+        """
+        await self.__update_raw_data_register_status_async(channel=channel)
+        reg_key: str = f"raw_video_packet.{channel}"
+        self._callbacks.setdefault(reg_key, {})
+        reg_id: int = self._alloc_reg_id(multi_reg)
+        self._callbacks[reg_key][str(reg_id)] = callback
+        return reg_id
+
+    async def unregister_raw_video_packet_async(
+        self, channel: int = 0, reg_id: int = 0
+    ) -> None:
+        """Unregister raw video packet callback."""
+        reg_key: str = f"raw_video_packet.{channel}"
+        if reg_key not in self._callbacks:
+            return
+        self._callbacks[reg_key].pop(str(reg_id), None)
+        await self.__update_raw_data_register_status_async(
+            channel=channel, is_register=False
+        )
+
     async def unregister_raw_video_async(
         self, channel: int = 0, reg_id: int = 0
     ) -> None:
@@ -515,6 +547,7 @@ class MIoTCameraInstance:
             need_unreg: bool = True
             for cb_prefix in (
                 "raw_video",
+                "raw_video_packet",
                 "raw_audio",
                 "decode_jpg",
                 "decode_pcm",
@@ -639,6 +672,12 @@ class MIoTCameraInstance:
                         frame_data.sequence,
                         channel,
                     ),
+                    self._main_loop,
+                )
+            vp_callbacks = self._callbacks.get(f"raw_video_packet.{channel}", {})
+            for vp_callback in list(vp_callbacks.values()):
+                asyncio.run_coroutine_threadsafe(
+                    vp_callback(frame_data),
                     self._main_loop,
                 )
         elif codec_id in [
@@ -1115,6 +1154,40 @@ class MIoTCamera:
 
         return await self._camera_map[did].register_raw_video_async(
             callback=callback, channel=channel, multi_reg=multi_reg
+        )
+
+    async def register_raw_video_packet_async(
+        self,
+        did: str,
+        callback: Callable[[MIoTCameraFrameData], Coroutine],
+        channel: int = 0,
+        multi_reg: bool = False,
+    ) -> int:
+        """Register raw video packets with codec/frame metadata."""
+        if did not in self._camera_map:
+            _LOGGER.error("camera not found, %s", did)
+            raise MIoTCameraError(f"camera not found, {did}")
+        if channel < 0 or channel >= self._camera_map[did].camera_info.channel_count:
+            _LOGGER.error("invalid channel, %s, %s", did, channel)
+            raise MIoTCameraError(f"invalid channel, {did}, {channel}")
+
+        return await self._camera_map[did].register_raw_video_packet_async(
+            callback=callback, channel=channel, multi_reg=multi_reg
+        )
+
+    async def unregister_raw_video_packet_async(
+        self, did: str, channel: int = 0, reg_id: int = 0
+    ) -> None:
+        """Unregister raw video packet callback."""
+        if did not in self._camera_map:
+            _LOGGER.error("camera not found, %s", did)
+            raise MIoTCameraError(f"camera not found, {did}")
+        if channel < 0 or channel >= self._camera_map[did].camera_info.channel_count:
+            _LOGGER.error("invalid channel, %s, %s", did, channel)
+            raise MIoTCameraError(f"invalid channel, {did}, {channel}")
+
+        return await self._camera_map[did].unregister_raw_video_packet_async(
+            channel=channel, reg_id=reg_id
         )
 
     async def unregister_raw_video_async(

@@ -19,7 +19,9 @@ from miloco.perception.collect.camera_adapter import (
     _monotonic_ms,
 )
 from miloco.perception.collect.stream_buffer import StreamFragment
+from miloco.perception.encoded_video import EncodedVideoPacket
 from miloco.perception.schema import DecodedAudioFrame, DecodedVideoFrame
+from miot.types import MIoTCameraCodec, MIoTCameraFrameType
 
 
 def _make_state(
@@ -68,11 +70,29 @@ class _Proxy:
 class _StreamProxy(_Proxy):
     is_authenticated = True
 
+    def __init__(self, camera: _CachedCamera | None):
+        super().__init__(camera)
+        self.raw_packet_started = None
+        self.raw_packet_stopped = None
+
     async def start_camera_decode_video_stream(self, did, channel, callback):
         return 1
 
     async def start_camera_decode_audio_stream(self, did, channel, callback):
         return 2
+
+    async def start_camera_raw_packet_stream(self, did, channel, callback):
+        self.raw_packet_started = (did, channel, callback)
+        return 3
+
+    async def stop_camera_decode_video_stream(self, did, channel, reg_id):
+        return None
+
+    async def stop_camera_decode_audio_stream(self, did, channel, reg_id):
+        return None
+
+    async def stop_camera_raw_packet_stream(self, did, channel, reg_id):
+        self.raw_packet_stopped = (did, channel, reg_id)
 
 
 class TestCacheFrameSize:
@@ -238,6 +258,7 @@ class TestCallbackIntegration:
 
         asyncio.run(adapter.connect_device("cam1", source=object()))  # type: ignore[arg-type]
 
+        assert proxy.raw_packet_started is not None
         state = adapter._devices["cam1"]
         _mark_live(state)
         source = adapter.get_connected_devices()["cam1"]
@@ -245,6 +266,42 @@ class TestCallbackIntegration:
         assert not hasattr(state, "source")
         assert source.name == "cache-name"
         assert source.room_name == "cache-room"
+
+    def test_disconnect_device_unregisters_raw_packet_reg_id(self):
+        proxy = _StreamProxy(_CachedCamera(name="cache-name", room_name="cache-room"))
+        adapter = CameraDeviceAdapter(miot_proxy=proxy)  # type: ignore[arg-type]
+
+        asyncio.run(adapter.connect_device("cam1", source=object()))  # type: ignore[arg-type]
+        asyncio.run(adapter.disconnect_device("cam1"))
+
+        assert proxy.raw_packet_stopped == ("cam1", 0, 3)
+
+    def test_raw_packet_callback_records_codec_and_keyframe(self, monkeypatch):
+        adapter, state = self._make_adapter_with_device()
+        monkeypatch.setattr(
+            "miloco.perception.collect.camera_adapter._monotonic_ms",
+            lambda: 5_000,
+        )
+
+        cb = adapter._make_raw_packet_callback("cam1")
+        packet = SimpleNamespace(
+            codec_id=MIoTCameraCodec.VIDEO_H264,
+            data=b"h264-packet",
+            timestamp=4_800,
+            sequence=42,
+            frame_type=MIoTCameraFrameType.FRAME_I,
+        )
+
+        asyncio.run(cb(packet))
+
+        assert len(state.encoded_video_packets) == 1
+        encoded = state.encoded_video_packets[0]
+        assert encoded.codec == "h264"
+        assert encoded.data == b"h264-packet"
+        assert encoded.stream_ts == 4_800
+        assert encoded.wall_ms == 5_000
+        assert encoded.sequence == 42
+        assert encoded.is_keyframe is True
 
 
 class TestBuildDeviceDataAggregation:
@@ -351,6 +408,35 @@ class TestBuildDeviceDataAggregation:
         assert dd.decode_video_avg_ms == pytest.approx(30.0)
         assert dd.decode_audio_avg_ms == 0.0
         assert dd.decode_avg_ms == pytest.approx(30.0)
+
+    def test_build_device_data_attaches_keyframe_aligned_encoded_packets(self):
+        adapter = CameraDeviceAdapter(miot_proxy=object())  # type: ignore[arg-type]
+        state = _make_state()
+        state.encoded_video_packets.extend(
+            [
+                EncodedVideoPacket("h264", b"p0", 900, 900, 1, False),
+                EncodedVideoPacket("h264", b"i", 1_500, 1_500, 2, True),
+                EncodedVideoPacket("h264", b"p1", 2_000, 2_000, 3, False),
+            ]
+        )
+        frame = DecodedVideoFrame(
+            frame=np.zeros((2, 2, 3), dtype=np.uint8),
+            stream_ts=2_000,
+            wall_ms=2_000,
+            unix_ms=2_000,
+        )
+        tracks = {
+            "decoded_video": [self._fragment(frame, frame.stream_ts, frame.wall_ms)],
+            "decoded_audio": [],
+        }
+
+        dd = adapter._build_device_data(state, tracks, 2_000, 2_500)
+
+        assert dd is not None
+        assert [p.data for p in dd.encoded_video] == [b"i", b"p1"]
+        snapshot = dd.to_snapshot()
+        assert snapshot is not None
+        assert [p.data for p in snapshot.encoded_video] == [b"i", b"p1"]
 
     def test_audio_only_average(self):
         adapter = CameraDeviceAdapter(miot_proxy=object())  # type: ignore[arg-type]

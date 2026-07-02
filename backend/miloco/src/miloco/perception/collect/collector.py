@@ -26,11 +26,13 @@ def _pack_batch_latency_aggregates(batch: PerceptionBatch) -> None:
     the processor can copy it into PerceptionLatency verbatim.
     """
     v_count = a_count = total = 0
+    encoded_count = 0
     v_dec_sum = a_dec_sum = 0.0
 
     for dd in batch.devices.values():
         v = len(dd.video)
         a = len(dd.audio)
+        encoded_count += len(dd.encoded_video)
         v_count += v
         a_count += a
         total += v + a
@@ -42,6 +44,7 @@ def _pack_batch_latency_aggregates(batch: PerceptionBatch) -> None:
 
     batch.video_frame_count = v_count
     batch.audio_frame_count = a_count
+    batch.encoded_video_packet_count = encoded_count
     batch.decode_video_avg_ms = _avg(v_dec_sum, v_count)
     batch.decode_audio_avg_ms = _avg(a_dec_sum, a_count)
     batch.decode_avg_ms = _avg(v_dec_sum + a_dec_sum, total)

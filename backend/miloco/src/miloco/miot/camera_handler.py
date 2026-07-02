@@ -168,6 +168,19 @@ class CameraVisionHandler:
     async def unregister_raw_stream(self, channel: int):
         await self.miot_camera_instance.unregister_raw_video_async(channel)
 
+    async def register_raw_packet_stream(
+        self, callback: Callable[[object], Coroutine], channel: int
+    ) -> int:
+        """Register raw encoded video packets without owning the legacy raw slot."""
+        return await self.miot_camera_instance.register_raw_video_packet_async(
+            callback, channel, multi_reg=True
+        )
+
+    async def unregister_raw_packet_stream(self, channel: int, reg_id: int):
+        await self.miot_camera_instance.unregister_raw_video_packet_async(
+            channel=channel, reg_id=reg_id
+        )
+
     async def add_camera_img(self, did: str, data: bytes, ts: int, channel: int):
         logger.debug(
             "add_camera_img camera_id: %s, camera timestamp: %d, image_size: %d",
@@ -263,6 +276,7 @@ class CameraVisionHandler:
         for channel in range(self.camera_info.channel_count or 1):
             await self.miot_camera_instance.unregister_decode_jpg_async(channel=channel)
             await self.miot_camera_instance.unregister_raw_video_async(channel=channel)
+            await self.miot_camera_instance.unregister_raw_video_packet_async(channel=channel)
             await self.miot_camera_instance.unregister_raw_audio_async(channel=channel)
             self.camera_img_queues[channel].clear()
 

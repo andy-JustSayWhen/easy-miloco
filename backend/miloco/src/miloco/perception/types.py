@@ -14,6 +14,8 @@ import numpy as np
 from numpy.typing import NDArray
 from pydantic import BaseModel, Field
 
+from miloco.perception.encoded_video import EncodedVideoPacket
+
 
 @dataclass
 class PerceptionDevice:
@@ -91,6 +93,7 @@ class DeviceSnapshot:
 
     video: VideoStream | None = None
     audio: AudioStream | None = None
+    encoded_video: list[EncodedVideoPacket] = field(default_factory=list)
 
     # --- Convenience properties ---
 
