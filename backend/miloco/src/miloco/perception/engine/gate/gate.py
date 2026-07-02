@@ -112,5 +112,6 @@ def run_gate(
         audio_clip=input_slice.audio_clip,
         sample_rate=input_slice.sample_rate,
         fps=input_fps,
+        encoded_video=list(input_slice.encoded_video),
     )
     return packet, timing, last_checked, new_last_visual_pass_ts, new_last_audio_pass_ts

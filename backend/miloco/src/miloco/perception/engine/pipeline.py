@@ -93,6 +93,7 @@ def downsample_snapshot(snapshot: DeviceSnapshot, target_fps: float) -> DeviceSn
         end_timestamp=snapshot.end_timestamp,
         video=VideoStream(frames=video_frames, width=w, height=h),
         audio=snapshot.audio,
+        encoded_video=list(snapshot.encoded_video),
     )
 
 
@@ -828,6 +829,7 @@ async def run_query_pipeline(
                 audio_clip=snapshot.audio_clip,
                 sample_rate=snapshot.sample_rate,
                 fps=config.input.fps,
+                encoded_video=list(snapshot.encoded_video),
             )
 
             # Run Identity (tracker, motion, frame selector, crop, audio analyzer)

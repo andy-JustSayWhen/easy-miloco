@@ -9,8 +9,13 @@ and independently testable before wiring it into the camera collector.
 
 from __future__ import annotations
 
+import os
+import tempfile
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import Literal
+
+import av
 
 EncodedVideoCodec = Literal["h264", "h265"]
 
@@ -78,3 +83,72 @@ def select_keyframe_aligned_packets(
         selected.append(packet)
 
     return selected
+
+
+def remux_encoded_video_to_mp4(
+    packets: list[EncodedVideoPacket],
+    *,
+    fps: int,
+) -> bytes | None:
+    """Remux raw H.264/H.265 packets into an MP4 container without re-encoding.
+
+    This is intentionally conservative.  It only accepts a single-codec slice
+    that starts with a keyframe, writes the raw Annex-B stream to FFmpeg/PyAV,
+    then stream-copies parsed packets into MP4 with synthetic timestamps based
+    on the perception fps.  Any parser/muxer failure returns ``None`` so callers
+    can fall back to the existing BGR -> H.264 encode path.
+    """
+
+    if fps <= 0 or not packets or not packets[0].is_keyframe:
+        return None
+    codec = packets[0].codec
+    if any(p.codec != codec or not p.data for p in packets):
+        return None
+
+    input_format = "h264" if codec == "h264" else "hevc"
+    raw_path = ""
+    mp4_path = ""
+    try:
+        with tempfile.NamedTemporaryFile(suffix=f".{input_format}", delete=False) as raw:
+            raw_path = raw.name
+            for packet in packets:
+                raw.write(packet.data)
+
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as mp4:
+            mp4_path = mp4.name
+
+        in_container = av.open(raw_path, "r", format=input_format)
+        out_container = av.open(mp4_path, "w")
+        try:
+            in_stream = in_container.streams.video[0]
+            out_stream = out_container.add_stream_from_template(in_stream)
+            time_base = Fraction(1, fps)
+            out_stream.time_base = time_base
+
+            idx = 0
+            for packet in in_container.demux(in_stream):
+                if packet.size <= 0:
+                    continue
+                packet.stream = out_stream
+                packet.pts = idx
+                packet.dts = idx
+                packet.duration = 1
+                packet.time_base = time_base
+                out_container.mux(packet)
+                idx += 1
+            if idx == 0:
+                return None
+        finally:
+            out_container.close()
+            in_container.close()
+
+        with open(mp4_path, "rb") as f:
+            mp4_bytes = f.read()
+        return mp4_bytes or None
+    except Exception:
+        return None
+    finally:
+        if raw_path and os.path.exists(raw_path):
+            os.unlink(raw_path)
+        if mp4_path and os.path.exists(mp4_path):
+            os.unlink(mp4_path)

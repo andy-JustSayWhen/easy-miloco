@@ -27,7 +27,9 @@ flowchart LR
 - Omni（云端多模态理解）需要把选中的帧重新编码成可上传的视频或图片格式。事件回放复用 Omni 看到的那份视频字节，不再二次编码。
 - 实时观看页面是另一条消费路径。用户打开直播预览时，可能额外增加拉流、解码或传输压力。
 
-当前已补上原始压缩视频包旁路：采集摄像头时，Miloco 可以同时保存 H.264/H.265 原始视频包和解码后的 BGR 图片帧。BGR 帧仍服务 Gate、Identity 和当前 Omni 上传路径；原始视频包先随窗口带到 `DeviceSnapshot.encoded_video`，并记录 `encoded_video_packets` 计数。这样后续可以把 Omni 上传路径从“BGR 图片帧重新编码成 MP4”替换为“原始 H.264/H.265 包 remux 成 MP4”。这一步本身只是可观测和可复用的基础能力，尚未把 Omni 上传切到 remux，所以不能把它当作已经降低运行期 CPU 的证据。
+当前已补上原始压缩视频包旁路：采集摄像头时，Miloco 可以同时保存 H.264/H.265 原始视频包和解码后的 BGR 图片帧。BGR 帧仍服务 Gate、Identity；原始视频包先随窗口带到 `DeviceSnapshot.encoded_video`，并记录 `encoded_video_packets` 计数。
+
+Omni 上传路径已接入 remux：当本窗没有音频要合入视频，且原始 H.264/H.265 包可被 PyAV/FFmpeg 解析时，Miloco 会优先把原始包 streamcopy/remux 成 MP4 上传。这个过程不解码、不缩放、不重新压缩画面，所以目标是降低 Omni 上传前的本地 CPU 峰值。若 remux 失败、缺 I 帧、包格式不被解析，或需要把音频合入视频，则自动回退到旧的 BGR 图片帧重新编码 MP4，保证质量不打折。
 
 二次编码的根因可以这样理解：摄像头送来的本来就是压缩视频包，解码是把它拆成图片给本地算法看；如果原始压缩包没有保留，云端要视频时只能把图片再压回视频。保留原始压缩包后，理想路径是只做 remux（重封装，只换 MP4 容器，不重新压缩画面），CPU 压力会明显低于重新编码。
 
@@ -143,6 +145,7 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 | 第一轮-观测 | 资源监控延后并降频采集内存明细；运行期每分钟仍更新 CPU/RSS，重型 `smaps`/Python heap 明细默认 120 秒后开始、300 秒一次 | `pytest backend/miloco/tests/node_monitor/test_resource_monitor.py -q`：19 passed；`ruff check backend/miloco/src/miloco/node_monitor/resource_monitor.py backend/miloco/tests/node_monitor/test_resource_monitor.py` 通过 | NAS 默认 1000ms、一路桌面摄像头、7 分钟只读采样：CPU 峰值 172.4%（4 核宿主约 43.1%），平均 166.2%；RSS 峰值 694.0MB；覆盖 8 个 trace，其中 1 个 Omni 窗口 `omni_ms=33492.9` | 运行期观测链路不再制造明显超预算尖峰；单路默认质量在含 Omni 调用窗口下仍低于 CPU/RAM 50% 预算 |
 | 第一轮-码流复用准备 | 新增原始压缩视频包的 I 帧对齐切片模块；后续 remux 必须从 I 帧开始，否则 P 帧缺少参考画面可能无法解码 | `pytest backend/miloco/tests/perception/test_encoded_video.py -q`：4 passed；`ruff check backend/miloco/src/miloco/perception/encoded_video.py backend/miloco/tests/perception/test_encoded_video.py` 通过 | 待接入 raw_video 旁路后上 NAS 复验 | 为减少 Omni 上传前 BGR → MP4 重新编码做前置保障；当前只是可测试基础件，尚未改变运行期资源 |
 | 第一轮-码流复用准备 | MIoT SDK 增加 raw video packet 多订阅，感知采集侧保存 H.264/H.265 原始包并按窗口附到 `DeviceSnapshot.encoded_video`；性能 trace 记录 `encoded_video_packets` | `pytest backend/miloco/tests/perception/test_camera_adapter_decode_latency.py backend/miloco/tests/perception/test_encoded_video.py backend/miloco/tests/perception/test_collector_pack_aggregates.py backend/miot/tests/test_camera.py::test_raw_video_packet_multi_reg_coexists_with_legacy_raw_video -q`：33 passed；ruff 通过 | 待安全部署后复验；上轮 compose 热补丁传输方式触发容器启动失败，已恢复旧 compose，未把失败热补丁当作运行期证据 | 现在具备“同一次拉流资产可被后续上传链路复用”的代码基础；下一步是实现 PyAV/FFmpeg remux，并在 NAS 上验证 Omni 上传前编码 CPU 是否下降 |
+| 第一轮-CPU | Omni 上传优先 remux 原始 H.264/H.265 包；无音频且 remux 成功时跳过 BGR → H.264 重新编码，失败自动回退旧路径 | `pytest backend/miloco/tests/perception/test_encoded_video.py backend/miloco/tests/perception/engine/omni/test_prompt_builder.py backend/miloco/tests/perception/engine/test_pipeline.py backend/miloco/tests/perception/test_camera_adapter_decode_latency.py backend/miloco/tests/perception/test_collector_pack_aggregates.py -q`：188 passed；ruff 通过 | 待 NAS 复验 | 这是第一轮“不降低质量”的真正 CPU 优化点：同样画面内容优先 streamcopy/remux，不重新压缩；仍需 NAS 上测 Omni 触发窗口 CPU 峰值 |
 
 ## 当前结论（2026-07-03 NAS 实测）
 
@@ -156,11 +159,13 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 
 资源监控自身也可能成为压力来源。早期实现启动后会立即试探完整内存区域采样，后续每 60 秒跟随资源监控采一次 `smaps` 和 Python heap。低配 NAS 上这类遍历会和感知周期争 CPU。延后并降频重型内存明细后，默认 1000ms、一路桌面摄像头、7 分钟运行期复验中，CPU 峰值 172.4%（4 核宿主约 43.1%）、平均 166.2%，RSS 峰值 694.0MB；采样覆盖 8 个 trace，其中 1 个实际进入 Omni 调用，仍低于 CPU/RAM 50% 预算。
 
-当前结论：单路桌面摄像头的运行期 CPU/RAM 已达成低配 NAS 预算，且使用默认 1000ms 采样间隔，不依赖 5000ms 降频。仍未完成全目标，因为还需要在更长时段、更多摄像头、有人移动、规则触发、Identity 实际进入的场景下复验最高峰值，并继续评估摄像头原始码流复用，减少 BGR 重新编码成 MP4 的 CPU 压力。
+当前结论：单路桌面摄像头的运行期 CPU/RAM 已达成低配 NAS 预算，且使用默认 1000ms 采样间隔，不依赖 5000ms 降频。仍未完成全目标，因为还需要在更长时段、更多摄像头、有人移动、规则触发、Identity 实际进入的场景下复验最高峰值。
+
+源码已接入摄像头原始码流 remux：无音频窗口会优先复用同一次拉流得到的 H.264/H.265 压缩包生成 MP4，减少 BGR 重新编码成 MP4 的 CPU 压力。该改动已有本地真实 H.264 remux 回归测试，但还未在 NAS 上复验运行期峰值，因此不能作为达标证据。
 
 下一步优先级：
 
-1. 第一轮继续：评估“原始摄像头压缩包复用/重封装”（remux，只换视频容器、不重新压缩画面），减少 Omni 上传前 BGR → MP4 重新编码的 CPU 压力。
+1. 第一轮继续：把 remux 改动安全部署到 NAS，复验 Omni 触发窗口的 CPU 峰值，确认 `encoded_video_packets` 非 0 且上传路径未走 BGR 重新编码。
 2. 第一轮继续：用 2-4 路摄像头复验默认 1000ms 下的峰值，重点观察有运动窗口、Identity 和 Omni 触发窗口。
 3. 第一轮继续：评估硬件解码（用 NAS 芯片的视频解码单元替代纯 CPU 解码）的可落地性，作为多路摄像头的进一步安全余量。
 4. 第二轮备选：将 `camera.video_quality` 切到 `LOW`、降低输入 FPS 或限制 Gate 抽检帧数。这会牺牲一部分画面细节或瞬时事件敏感度，不属于“质量不打折”方案。

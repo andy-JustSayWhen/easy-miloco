@@ -26,6 +26,7 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
+from miloco.perception.encoded_video import remux_encoded_video_to_mp4
 from miloco.perception.engine.identity.gallery_composite import (
     build_body_composite_png,
     build_face_composite_png,
@@ -1133,6 +1134,17 @@ def _encode_video(identity_packet: IdentityPacket) -> str | None:
         if _packet_audio_included(identity_packet)
         else np.empty(0, dtype=np.int16)
     )
+    if audio.size == 0 and identity_packet.encoded_video:
+        mp4_bytes = remux_encoded_video_to_mp4(
+            identity_packet.encoded_video,
+            fps=identity_packet.frame_info.fps,
+        )
+        if mp4_bytes:
+            from miloco.perception.snapshot_context import push_clip_bytes
+
+            push_clip_bytes(mp4_bytes, "mp4")
+            return base64.b64encode(mp4_bytes).decode()
+
     return _encode_video_mp4(
         frames,
         audio,

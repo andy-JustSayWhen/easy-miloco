@@ -1,8 +1,10 @@
 """Tests for Omni Layer — Prompt Builder."""
 
+import base64
 from unittest.mock import patch
 
 import numpy as np
+from miloco.perception.encoded_video import EncodedVideoPacket
 from miloco.perception.engine.omni.prompt_builder import (
     _batch_video_has_audio,
     _encode_video,
@@ -128,6 +130,72 @@ class TestBuildPrompt:
         ctx = OmniContext()
         payload = build_prompt(ep, ctx)
         assert isinstance(payload["crops"], list)
+
+    def test_encode_video_prefers_remux_when_raw_packets_exist_without_audio(self):
+        ep = _mock_edge_packet()
+        ep.trigger = GateTrigger(
+            visual_changed=True,
+            visual_change_score=1.0,
+            audio_active=False,
+            audio_energy_level=0.0,
+        )
+        ep.encoded_video = [
+            EncodedVideoPacket(
+                codec="h264",
+                data=b"raw-h264",
+                stream_ts=0,
+                wall_ms=0,
+                is_keyframe=True,
+            )
+        ]
+
+        with (
+            patch(
+                "miloco.perception.engine.omni.prompt_builder.remux_encoded_video_to_mp4",
+                return_value=b"mp4-bytes",
+            ) as remux,
+            patch(
+                "miloco.perception.engine.omni.prompt_builder._encode_video_mp4",
+            ) as encode_mp4,
+        ):
+            encoded = _encode_video(ep)
+
+        remux.assert_called_once_with(ep.encoded_video, fps=ep.frame_info.fps)
+        encode_mp4.assert_not_called()
+        assert encoded == base64.b64encode(b"mp4-bytes").decode()
+
+    def test_encode_video_falls_back_when_remux_fails(self):
+        ep = _mock_edge_packet()
+        ep.trigger = GateTrigger(
+            visual_changed=True,
+            visual_change_score=1.0,
+            audio_active=False,
+            audio_energy_level=0.0,
+        )
+        ep.encoded_video = [
+            EncodedVideoPacket(
+                codec="h264",
+                data=b"raw-h264",
+                stream_ts=0,
+                wall_ms=0,
+                is_keyframe=True,
+            )
+        ]
+
+        with (
+            patch(
+                "miloco.perception.engine.omni.prompt_builder.remux_encoded_video_to_mp4",
+                return_value=None,
+            ),
+            patch(
+                "miloco.perception.engine.omni.prompt_builder._encode_video_mp4",
+                return_value="fallback",
+            ) as encode_mp4,
+        ):
+            encoded = _encode_video(ep)
+
+        encode_mp4.assert_called_once()
+        assert encoded == "fallback"
 
     def test_system_prompt_includes_schema(self):
         """Realtime 路径 system prompt 包含 JSON schema。"""

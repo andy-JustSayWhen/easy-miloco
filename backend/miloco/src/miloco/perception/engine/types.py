@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
+from miloco.perception.encoded_video import EncodedVideoPacket
 from miloco.perception.types import DeviceSnapshot
 
 # =============================================================================
@@ -50,6 +51,7 @@ class GatePacket:
     audio_clip: NDArray[np.int16]
     sample_rate: int = 16000
     fps: int = 1  # actual fps of frames after pipeline downsampling
+    encoded_video: list[EncodedVideoPacket] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -233,6 +235,7 @@ class IdentityPacket:
     audio_analysis: AudioAnalysis
     sample_rate: int = 16000
     trigger: GateTrigger | None = None  # 透传自 GatePacket，下游分流 audio-only 路径用
+    encoded_video: list[EncodedVideoPacket] = field(default_factory=list)
 
 
 # =============================================================================
