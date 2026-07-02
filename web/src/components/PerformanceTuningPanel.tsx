@@ -24,6 +24,8 @@ type ParamCopy = {
   zh: string;
   en: string;
   hint: string;
+  purpose: string;
+  effect: string;
 };
 
 const PARAM_COPY: Record<string, ParamCopy> = {
@@ -31,91 +33,127 @@ const PARAM_COPY: Record<string, ParamCopy> = {
     zh: "摄像头取帧间隔",
     en: "Camera frame interval",
     hint: "数值越大越省 CPU。低配 NAS 建议 3000ms 左右。",
+    purpose: "控制每路摄像头多久取一帧画面。",
+    effect: "调大后更省 CPU，但家里变化会更晚被看到。",
   },
   "camera.max_cache_images": {
     zh: "每路摄像头缓存图片数",
     en: "Camera cache images",
     hint: "数值越小越省内存，但可回看的画面更少。",
+    purpose: "控制每路摄像头最多在内存里留多少张历史画面。",
+    effect: "调小后内存下降，但能回看的画面更少。",
   },
   "perception.collect.window_size": {
     zh: "单次感知窗口长度",
     en: "Collect window size",
     hint: "窗口越短，每次送给 Omni 的图片越少，延迟和负载更低。",
+    purpose: "控制一次视觉分析会打包多少个时间片。",
+    effect: "调小后 Omni 压力下降，但场景描述可能少一些上下文。",
   },
   "perception.collect.max_windows": {
     zh: "最多排队窗口数",
     en: "Collect max windows",
     hint: "低配机器建议 1-2，避免堆积导致 CPU 越跑越高。",
+    purpose: "控制处理不过来时最多允许积压多少个分析任务。",
+    effect: "调小后不容易越积越卡，但忙不过来时会更早丢弃旧画面。",
   },
   "perception.collect.full_action": {
     zh: "队列满时怎么处理",
     en: "Window full action",
     hint: "低配机器建议 clear 或 drop，优先保护运行稳定。",
+    purpose: "控制分析队列满了以后，是清空、丢弃，还是继续保留。",
+    effect: "clear/drop 更适合低配机器；keep 保留更多数据但可能越跑越卡。",
   },
   "perception.engine.input.fps": {
     zh: "感知输入帧率",
     en: "Pipeline FPS",
     hint: "最影响 CPU。低配 NAS 建议 1 FPS。",
+    purpose: "控制每秒送入感知流水线的画面数量。",
+    effect: "调低后 CPU 会明显下降，但实时性会变差。",
   },
   "perception.engine.input.omni_fps": {
     zh: "送给 Omni 的帧率",
     en: "Omni FPS",
     hint: "越低越省 Omni 推理时间和 token，通常 1 就够。",
+    purpose: "控制每秒最多送多少帧给多模态模型分析。",
+    effect: "调低后模型调用更轻，但细节变化可能被跳过。",
   },
   "perception.engine.identity.tracking_service_mode": {
     zh: "身份跟踪模式",
     en: "Tracking mode",
     hint: "deep_sort 更准但更吃 CPU；mock 最省但基本不做真实跟踪。",
+    purpose: "控制 Miloco 用哪种方式持续跟踪画面里的人。",
+    effect: "deep_sort 更准但吃 CPU；mock 最省但身份连续性会变弱。",
   },
   "perception.engine.identity_engine.enabled": {
     zh: "身份识别开关",
     en: "Identity engine",
     hint: "关闭最省资源，但 Miloco 就不能识别是谁。",
+    purpose: "控制是否识别画面里的人是谁。",
+    effect: "关闭后最省资源，但家庭成员身份识别能力会不可用。",
   },
   "perception.engine.identity_engine.deep_sort.mode": {
     zh: "DeepSORT 省电模式",
     en: "DeepSORT mode",
     hint: "fast 更适合低配机器，会减少重复 ReID。",
+    purpose: "控制 DeepSORT 身份跟踪的精细程度。",
+    effect: "fast 更省 CPU；normal 更稳但更重。",
   },
   "perception.engine.identity_engine.deep_sort.human_reid_skip_windows": {
     zh: "人体 ReID 跳过窗口数",
     en: "ReID skip windows",
     hint: "数值越大越省 CPU，但身份刷新会更慢。",
+    purpose: "控制隔多少个窗口才重新做一次人体身份匹配。",
+    effect: "调大后更省 CPU，但身份更新会更慢。",
   },
   "perception.snapshot_max_disk_mb": {
     zh: "快照磁盘上限",
     en: "Snapshot disk cap",
     hint: "限制截图/片段占用空间，旧数据会更快清理。",
+    purpose: "控制截图和短片最多占用多少磁盘空间。",
+    effect: "调小后更省磁盘，但旧记录会更快被清理。",
   },
   "perf.enabled": {
     zh: "性能采集开关",
     en: "Perf metrics",
     hint: "调优期间建议保持开启。",
+    purpose: "控制是否记录性能数据，用来生成当前这个页面。",
+    effect: "关闭后略微省资源，但后续很难判断哪里卡。",
   },
   "perf.retention.traces_days": {
     zh: "Trace 保留天数",
     en: "Trace retention days",
     hint: "越短数据库越小。",
+    purpose: "控制处理链路明细保留多少天。",
+    effect: "调小后数据库更轻，但历史排障信息更少。",
   },
   "perf.retention.events_days": {
     zh: "事件保留天数",
     en: "Event retention days",
     hint: "越短数据库越小。",
+    purpose: "控制性能事件记录保留多少天。",
+    effect: "调小后数据库更轻，但历史趋势更短。",
   },
   "perf.retention.agent_runs_days": {
     zh: "Agent 记录保留天数",
     en: "Agent run retention days",
     hint: "越短数据库越小。",
+    purpose: "控制 Agent 调用记录保留多少天。",
+    effect: "调小后数据库更轻，但无法回看更早的 Agent 调用。",
   },
   "perf.retention.trace_jsonl_days": {
     zh: "Agent 原始日志保留天数",
     en: "Agent trace JSONL retention days",
     hint: "越短越省磁盘。",
+    purpose: "控制 Agent 原始 JSONL 日志保留多少天。",
+    effect: "调小后更省磁盘，但深度排障材料更少。",
   },
   "perf.retention.omni_log_days": {
     zh: "Omni 日志保留天数",
     en: "Omni log retention days",
     hint: "越短越省磁盘。",
+    purpose: "控制 Omni 调用日志保留多少天。",
+    effect: "调小后更省磁盘，但模型调用历史更短。",
   },
 };
 
@@ -145,6 +183,28 @@ function changedParams(
 function summarizeConfigValue(path: string, value: PerformanceParamValue): string {
   const copy = PARAM_COPY[path]?.zh ?? path;
   return `${copy} -> ${String(value)}`;
+}
+
+function supportedRangeText(param: PerformanceConfigParam): string {
+  if (param.options?.length) {
+    return `可选：${param.options.map((item) => String(item)).join(" / ")}`;
+  }
+  if (param.type === "boolean") return "可选：true / false";
+  const min = param.min ?? null;
+  const max = param.max ?? null;
+  const step = param.step ?? null;
+  if (min !== null && max !== null) {
+    return `范围：${min} - ${max}${step ? `，步进 ${step}` : ""}`;
+  }
+  if (min !== null) return `范围：不小于 ${min}${step ? `，步进 ${step}` : ""}`;
+  if (max !== null) return `范围：不大于 ${max}${step ? `，步进 ${step}` : ""}`;
+  if (param.type === "integer") return "范围：整数";
+  if (param.type === "number") return "范围：数字";
+  return "范围：文本";
+}
+
+function statusText(over: boolean): string {
+  return over ? "超预算" : "正常";
 }
 
 function tradeoffText(path: string): string {
@@ -192,10 +252,13 @@ function noviceDiagnosisText(
   return "Agent 没有给出需要改动的参数。可以继续观察 CPU/RAM 是否下降。";
 }
 
-async function waitForBackendReady(): Promise<void> {
-  const deadline = Date.now() + 60_000;
+async function waitForBackendReady(onPoll?: (attempt: number) => void): Promise<void> {
+  const deadline = Date.now() + 120_000;
   let lastError: unknown;
+  let attempt = 0;
   while (Date.now() < deadline) {
+    attempt += 1;
+    onPoll?.(attempt);
     try {
       await getPerformanceBudget();
       return;
@@ -204,41 +267,81 @@ async function waitForBackendReady(): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }
   }
-  throw lastError instanceof Error ? lastError : new Error("backend restart timeout");
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("backend restart timeout");
 }
 
 function BudgetCard({
   title,
   current,
-  budget,
+  budgetLine,
   ratio,
   over,
+  explanation,
+  action,
 }: {
   title: string;
   current: string;
-  budget: string;
+  budgetLine: string;
   ratio: string;
   over: boolean;
+  explanation: string;
+  action: string;
 }) {
   return (
     <div
-      className={`rounded-lg border p-3 ${
-        over ? "border-red-300 bg-red-50" : "border-border bg-bg-primary"
+      className={`rounded-lg border p-4 space-y-3 ${
+        over ? "border-error bg-error-bg" : "border-success bg-success-bg"
       }`}
     >
       <div className="flex items-center justify-between gap-3">
         <div className="text-caption text-text-secondary">{title}</div>
         <div
           className={`text-caption font-medium ${
-            over ? "text-red-700" : "text-emerald-700"
+            over ? "text-error" : "text-success"
           }`}
         >
-          {over ? "OVER" : "OK"}
+          {statusText(over)}
         </div>
       </div>
       <div className="mt-2 text-title text-text-primary">{current}</div>
-      <div className="mt-1 text-caption text-text-tertiary">
-        {budget} · {ratio}
+      <div className="space-y-1 text-caption text-text-secondary">
+        <div>{budgetLine}</div>
+        <div>占宿主预算：{ratio}</div>
+        <div className="text-text-primary">{explanation}</div>
+        {over ? <div className="text-error">{action}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+function RestartOverlay({
+  applying,
+  restartWaiting,
+  pollAttempt,
+}: {
+  applying: boolean;
+  restartWaiting: boolean;
+  pollAttempt: number;
+}) {
+  if (!applying && !restartWaiting) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4">
+      <div className="w-full max-w-md rounded-xl border border-border bg-bg-secondary shadow-lg p-5 space-y-3">
+        <div className="text-title text-text-primary">后端正在应用并重启</div>
+        <p className="text-body text-text-secondary leading-relaxed">
+          请等 1-3 分钟，不要重复点击按钮。页面会每 2 秒自动检测后端是否恢复，
+          恢复后会自动刷新当前性能数据。
+        </p>
+        <div className="rounded-lg bg-info-bg border border-info px-3 py-2 text-caption text-text-secondary">
+          {restartWaiting
+            ? `正在自动检测第 ${pollAttempt || 1} 次...`
+            : "正在写入配置并准备重启..."}
+        </div>
+        <p className="text-caption text-text-tertiary">
+          如果超过 3 分钟还没有恢复，再手动刷新浏览器或检查后端日志。
+        </p>
       </div>
     </div>
   );
@@ -255,6 +358,7 @@ export function PerformanceTuningPanel({
   const [diagnosing, setDiagnosing] = useState(false);
   const [applying, setApplying] = useState(false);
   const [restartWaiting, setRestartWaiting] = useState(false);
+  const [pollAttempt, setPollAttempt] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
   const [userTouchedDraft, setUserTouchedDraft] = useState(false);
   const params = configState.data?.params ?? [];
@@ -319,8 +423,9 @@ export function PerformanceTuningPanel({
       const values = changedValues();
       await applyPerformanceConfig(values);
       setRestartWaiting(true);
+      setPollAttempt(0);
       setMessage(t("perf.tuningAppliedRestarting", { count: Object.keys(values).length }));
-      await waitForBackendReady();
+      await waitForBackendReady(setPollAttempt);
       setRestartWaiting(false);
       setMessage(t("perf.tuningRestarted"));
       setDiagnosis(null);
@@ -341,6 +446,11 @@ export function PerformanceTuningPanel({
 
   return (
     <section className="rounded-xl bg-bg-secondary border border-border shadow-sm p-4 space-y-4">
+      <RestartOverlay
+        applying={applying}
+        restartWaiting={restartWaiting}
+        pollAttempt={pollAttempt}
+      />
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h2 className="text-title text-text-primary">
@@ -379,16 +489,20 @@ export function PerformanceTuningPanel({
           <BudgetCard
             title={t("perf.tuningCpuBudget")}
             current={`${budget.cpu_pct.toFixed(1)}%`}
-            budget={`${t("perf.tuningBudget")} ${budget.cpu_budget_pct.toFixed(1)}%`}
+            budgetLine={`低配目标：不超过 ${budget.cpu_budget_pct.toFixed(1)}%`}
             ratio={fmtPct(budget.cpu_ratio)}
             over={budget.cpu_over_budget}
+            explanation="这里表示 Miloco 正在吃掉多少宿主 CPU。超过目标时，NAS 会明显变卡。"
+            action="建议先降低感知输入帧率、感知窗口和身份识别频率。"
           />
           <BudgetCard
             title={t("perf.tuningRamBudget")}
             current={fmtMb(budget.rss_mb)}
-            budget={`${t("perf.tuningBudget")} ${fmtMb(budget.memory_budget_mb)}`}
+            budgetLine={`低配目标：不超过 ${fmtMb(budget.memory_budget_mb)}`}
             ratio={fmtPct(budget.memory_ratio)}
             over={budget.memory_over_budget}
+            explanation={`这里表示 Miloco 当前占用内存，宿主总内存约 ${fmtMb(budget.host_total_memory_mb)}。`}
+            action="建议先减少缓存图片、排队窗口和历史保留天数。"
           />
         </div>
       ) : (
@@ -400,7 +514,7 @@ export function PerformanceTuningPanel({
       <div
         className={`rounded-lg border px-3 py-3 ${
           budget?.cpu_over_budget || budget?.memory_over_budget
-            ? "border-amber-200 bg-amber-50"
+            ? "border-warning bg-warning-bg"
             : "border-border bg-bg-primary"
         }`}
       >
@@ -479,107 +593,123 @@ export function PerformanceTuningPanel({
         </div>
       ) : null}
 
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-caption">
-          <thead>
-            <tr className="text-left text-text-tertiary border-b border-border">
-              <th className="py-2 pr-4">{t("perf.tuningParam")}</th>
-              <th className="py-2 pr-4">{t("perf.tuningCurrent")}</th>
-              <th className="py-2 pr-4">{t("perf.tuningValue")}</th>
-              <th className="py-2 pr-4">{t("perf.tuningImpact")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {params.map((param) => {
-              const current = draft[param.path] ?? "";
-              const recommended =
-                diagnosis?.recommended_config[param.path] !== undefined;
-              const changed = current !== (param.value ?? "");
-              const copy = PARAM_COPY[param.path] ?? {
-                zh: param.label,
-                en: param.label,
-                hint: param.impact || param.description,
-              };
-              return (
-                <tr key={param.path} className="border-b border-border/60">
-                  <td className="py-2 pr-4 min-w-64">
-                    <div className="text-text-primary font-medium">{copy.zh}</div>
-                    <div className="text-text-tertiary opacity-60">{copy.en}</div>
-                    <div className="text-text-tertiary">{param.path}</div>
-                  </td>
-                  <td className="py-2 pr-4 text-text-secondary">
-                    {String(param.value ?? "")}
-                  </td>
-                  <td className="py-2 pr-4">
-                    <div className="flex items-center gap-2">
-                      {param.options ? (
-                        <select
-                          value={String(current)}
-                          onChange={(e) =>
-                            updateDraft(param.path, valueFromInput(param, e.target.value))
-                          }
-                          className={`rounded-md border px-2 py-1 bg-bg-primary text-text-primary ${
-                            changed || recommended
-                              ? "border-brand-primary"
-                              : "border-border"
-                          }`}
-                        >
-                          {param.options.map((opt) => (
-                            <option key={String(opt)} value={String(opt)}>
-                              {String(opt)}
-                            </option>
-                          ))}
-                        </select>
-                      ) : param.type === "boolean" ? (
-                        <select
-                          value={String(current)}
-                          onChange={(e) =>
-                            updateDraft(param.path, valueFromInput(param, e.target.value))
-                          }
-                          className={`rounded-md border px-2 py-1 bg-bg-primary text-text-primary ${
-                            changed || recommended
-                              ? "border-brand-primary"
-                              : "border-border"
-                          }`}
-                        >
-                          <option value="true">true</option>
-                          <option value="false">false</option>
-                        </select>
-                      ) : (
-                        <input
-                          type={param.type === "string" ? "text" : "number"}
-                          min={param.min ?? undefined}
-                          max={param.max ?? undefined}
-                          step={param.step ?? undefined}
-                          value={String(current)}
-                          onChange={(e) =>
-                            updateDraft(param.path, valueFromInput(param, e.target.value))
-                          }
-                          className={`w-32 rounded-md border px-2 py-1 bg-bg-primary text-text-primary ${
-                            changed || recommended
-                              ? "border-brand-primary"
-                              : "border-border"
-                          }`}
-                        />
-                      )}
-                      {changed ? (
-                        <span className="rounded-full bg-brand-soft text-brand-primary border border-brand-primary/30 px-2 py-0.5">
-                          {t("perf.tuningChanged")}
-                        </span>
-                      ) : null}
+      <div className="space-y-3">
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(220px,1fr)_120px_minmax(180px,220px)_minmax(280px,1.4fr)] gap-3 px-1 text-caption text-text-tertiary">
+          <div>{t("perf.tuningParam")}</div>
+          <div>{t("perf.tuningCurrent")}</div>
+          <div>{t("perf.tuningValue")}</div>
+          <div>{t("perf.tuningImpact")}</div>
+        </div>
+        {params.map((param) => {
+          const current = draft[param.path] ?? "";
+          const recommended =
+            diagnosis?.recommended_config[param.path] !== undefined;
+          const changed = current !== (param.value ?? "");
+          const copy = PARAM_COPY[param.path] ?? {
+            zh: param.label,
+            en: param.label,
+            hint: param.impact || param.description,
+            purpose: param.description,
+            effect: param.impact,
+          };
+          const controlClass = `w-full rounded-md border px-2 py-2 bg-bg-primary text-text-primary ${
+            changed || recommended ? "border-brand-primary" : "border-border"
+          }`;
+          return (
+            <div
+              key={param.path}
+              className={`grid grid-cols-1 lg:grid-cols-[minmax(220px,1fr)_120px_minmax(180px,220px)_minmax(280px,1.4fr)] gap-3 rounded-lg border p-3 ${
+                changed
+                  ? "border-brand-primary bg-brand-soft"
+                  : "border-border bg-bg-primary"
+              }`}
+            >
+              <div className="min-w-0">
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0">
+                    <div className="text-text-primary font-medium break-words">
+                      {copy.zh}
                     </div>
-                  </td>
-                  <td className="py-2 pr-4 min-w-72">
-                    <div className="text-text-secondary">{copy.hint}</div>
-                    <div className="text-text-tertiary opacity-60 mt-1">
-                      {param.impact || param.description}
+                    <div className="text-text-tertiary opacity-70 break-words">
+                      {copy.en}
                     </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                    <div className="text-text-tertiary break-all">
+                      {param.path}
+                    </div>
+                  </div>
+                  {changed ? (
+                    <span className="shrink-0 rounded-full bg-bg-secondary text-brand-primary border border-brand-primary/40 px-2 py-0.5 text-caption">
+                      {t("perf.tuningChanged")}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+
+              <div>
+                <div className="lg:hidden text-caption text-text-tertiary mb-1">
+                  {t("perf.tuningCurrent")}
+                </div>
+                <div className="text-text-primary break-all">
+                  {String(param.value ?? "未设置")}
+                </div>
+              </div>
+
+              <div>
+                <div className="lg:hidden text-caption text-text-tertiary mb-1">
+                  {t("perf.tuningValue")}
+                </div>
+                {param.options ? (
+                  <select
+                    value={String(current)}
+                    onChange={(e) =>
+                      updateDraft(param.path, valueFromInput(param, e.target.value))
+                    }
+                    className={controlClass}
+                  >
+                    {param.options.map((opt) => (
+                      <option key={String(opt)} value={String(opt)}>
+                        {String(opt)}
+                      </option>
+                    ))}
+                  </select>
+                ) : param.type === "boolean" ? (
+                  <select
+                    value={String(current)}
+                    onChange={(e) =>
+                      updateDraft(param.path, valueFromInput(param, e.target.value))
+                    }
+                    className={controlClass}
+                  >
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                ) : (
+                  <input
+                    type={param.type === "string" ? "text" : "number"}
+                    min={param.min ?? undefined}
+                    max={param.max ?? undefined}
+                    step={param.step ?? undefined}
+                    value={String(current)}
+                    onChange={(e) =>
+                      updateDraft(param.path, valueFromInput(param, e.target.value))
+                    }
+                    className={controlClass}
+                  />
+                )}
+              </div>
+
+              <div className="space-y-1 text-caption leading-relaxed">
+                <div className="lg:hidden text-caption text-text-tertiary mb-1">
+                  {t("perf.tuningImpact")}
+                </div>
+                <div className="text-text-primary">{copy.purpose}</div>
+                <div className="text-text-secondary">{supportedRangeText(param)}</div>
+                <div className="text-text-secondary">{copy.effect}</div>
+                <div className="text-text-tertiary opacity-70">{copy.hint}</div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </section>
   );
