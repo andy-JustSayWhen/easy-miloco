@@ -1180,6 +1180,13 @@ def _encode_video_mp4(
         v_stream.width = target_w
         v_stream.height = target_h
         v_stream.pix_fmt = "yuv420p"
+        # Omni sees the same frames and dimensions either way; the preset only
+        # trades compression effort for CPU. This matches the camera clip
+        # recorder's low-latency path and avoids CPU spikes on low-end NAS.
+        v_stream.options = {
+            "preset": "ultrafast",
+            "tune": "zerolatency",
+        }
 
         # Audio stream (if enough samples for AAC)
         _AAC_FRAME_SIZE = 1024

@@ -132,7 +132,8 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 | 第一轮-内存 | 解码帧进入长窗口缓存前等比缩到身份识别有效上限（默认 1280x720）；低于上限的帧不复制 | `pytest ...test_camera_adapter_decode_latency.py ...test_latency_rtf.py ...test_stream_buffer_overflow.py ...test_visual_gate.py` 54 passed；ruff 通过 | 4 分钟采样：CPU 峰值 328.4% / 预算 200%，RSS 峰值 2457.7MB / 预算 3905.5MB；`gate_video_ms` 从旧样本 7-15s 降到约 2.1-2.4s | RAM 首次达标；CPU 仍超，说明剩余瓶颈主要不在内存缓存，而在持续拉流/解码与少量 Gate |
 | 第一轮-CPU | 创建摄像头实例时关闭未使用的音频流（当前仓库摄像头音频不参与感知，关闭不影响现有视频/身份/Omni 能力） | 同上 54 passed；ruff 通过 | 4 分钟采样：CPU 峰值 357.9%（含启动窗口），稳态约 213-264% / 预算 200%；RSS 峰值 2488.5MB / 预算 3905.5MB；最新 trace 中 `decode_ms` 约 1.17-1.33s、`gate_video_ms` 约 1.8-2.0s、`omni_ms` 为云端等待 | RAM 稳定达标；CPU 有改善但仍未达标。第一轮下一步必须继续处理拉流/解码层，或进入第二轮接受 LOW 质量/更低 FPS/更少 Gate 抽检 |
 | 第一轮-CPU A/B | 仅把 `MILOCO_CAMERA__FRAME_INTERVAL` 改为 5000ms，不改代码 | 无代码改动 | 4 分钟采样：新 trace 仍有 367-453 帧/60s；CPU 峰值 317.8%、平均 267.5%；RSS 峰值 2457.1MB | 证明旧代码中 `frame_interval` 没有节流 BGR 感知帧。源码对应：`MIoTMediaDecoder` 只用该参数节流 JPEG 预览，`decode_video_frame` 路径标注为 no rate limiting |
-| 第一轮-CPU | `MIoTMediaDecoder` 对 BGR 帧回调也应用 `frame_interval`；仍解码每个 H.264/H.265 包以保持参考帧有效，只跳过间隔内的 BGR 转换和下游感知 | `pytest backend/miot/tests/test_units.py backend/miloco/tests/perception/test_camera_adapter_decode_latency.py backend/miloco/tests/perception/test_latency_rtf.py backend/miloco/tests/perception/test_stream_buffer_overflow.py backend/miloco/tests/perception/engine/gate/test_visual_gate.py -q`：91 passed；ruff 通过 | 热补丁后首段采样：新窗口降到 12 帧/60s，`decode_ms` 约 71-228ms，`gate_video_ms` 约 0.99-1.19s；稳定期 3 分钟采样 CPU 峰值 115.6% / 预算 200%，RSS 峰值 540.4MB / 预算 3905.5MB | 单路桌面摄像头运行期已达标。该改动不降低画面质量，只让已存在的采样间隔配置对感知帧生效；需要继续用更长时段、多摄像头、有人移动和规则触发场景复验 |
+| 第一轮-CPU | `MIoTMediaDecoder` 对 BGR 帧回调也应用 `frame_interval`；仍解码每个 H.264/H.265 包以保持参考帧有效，只跳过间隔内的 BGR 转换和下游感知 | `pytest backend/miot/tests/test_units.py backend/miloco/tests/perception/test_camera_adapter_decode_latency.py backend/miloco/tests/perception/test_latency_rtf.py backend/miloco/tests/perception/test_stream_buffer_overflow.py backend/miloco/tests/perception/engine/gate/test_visual_gate.py -q`：91 passed；ruff 通过 | 5000ms 验证：新窗口降到 12 帧/60s，稳定期 CPU 峰值 115.6%；1000ms 默认质量复验：新窗口 52-58 帧/60s，运行期 CPU 约 200.2-210.8%，仍擦线超预算 | 证明节流修复有效，但默认质量下还需要继续压非跳过窗口和 Omni 上传前编码峰值 |
+| 第一轮-CPU | Omni 上传 mp4 编码使用 `ultrafast/zerolatency` H.264 参数；不改上传帧数、分辨率、内容，只降低编码器计算量 | `pytest backend/miloco/tests/perception/engine/omni/test_prompt_builder.py backend/miloco/tests/perception/engine/test_pipeline.py backend/miot/tests/test_units.py ... -q`：243 passed；ruff 通过；本地 `_encode_video_mp4` 可生成 payload | NAS 默认 1000ms 复验：热补丁后非跳过 Omni 窗口 CPU 约 173-176%，跳过窗口稳定期 CPU 峰值 164.0%，RSS 峰值 809.3MB（稳定跳过期 689.1MB）；窗口 52-58 帧/60s | 单路桌面摄像头默认采样质量下，运行期 CPU/RAM 已低于预算；启动后旧窗口/启动期仍可出现 300%+ 尖峰，需要单独处理或在验收口径中排除启动阶段 |
 
 ## 当前结论（2026-07-03 NAS 实测）
 
@@ -140,12 +141,15 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 
 进一步 A/B 证明，旧版 `camera.frame_interval` 不会节流感知使用的 BGR 帧：即使设为 5000ms，60 秒窗口仍有 367-453 帧。原因是 SDK 的 `MIoTMediaDecoder` 只用 `frame_interval` 节流 JPEG 预览输出，BGR 回调路径没有节流。
 
-修复 BGR 回调节流后，NAS 稳定运行期采样已达标：CPU 峰值 115.6% / 预算 200%，RSS 峰值 540.4MB / 预算约 3905.5MB；新窗口稳定为 12 帧/60s。这里的 12 帧来自当前现场配置的 5000ms 采样间隔，说明原本“配置了但没生效”的低配参数开始生效。
+修复 BGR 回调节流后，5000ms 低频配置可把窗口降到 12 帧/60s，但这只用于验证节流是否生效，不作为第一轮“不降低质量”的验收依据。将采样间隔恢复到默认 1000ms 后，新窗口稳定在 52-58 帧/60s。
 
-当前结论：单路桌面摄像头的运行期 CPU/RAM 已达成低配 NAS 预算。但这还不是全目标完成，因为还需要在更长时段、更多摄像头、有人移动、规则触发、Identity/Omni 实际进入的场景下复验最高峰值，确认没有新的功能退化或启动期尖峰。
+默认 1000ms 下，单靠 BGR 节流仍有非跳过窗口在 200% CPU 预算边缘。继续把 Omni 上传 mp4 编码改成低 CPU 的 `ultrafast/zerolatency` 参数后，默认采样质量下的运行期采样达标：非跳过 Omni 窗口 CPU 约 173-176%，跳过窗口稳定期 CPU 峰值 164.0%，RSS 峰值 809.3MB，均低于 4 核宿主 200% CPU / 约 3905.5MB RAM 预算。
+
+当前结论：单路桌面摄像头的运行期 CPU/RAM 已达成低配 NAS 预算，且使用默认 1000ms 采样间隔，不依赖 5000ms 降频。仍未完成全目标，因为还需要在更长时段、更多摄像头、有人移动、规则触发、Identity/Omni 实际进入的场景下复验最高峰值，并处理或明确排除后端重启/启动期尖峰。
 
 下一步优先级：
 
-1. 第一轮继续：用 2-4 路摄像头复验 BGR 节流后的峰值，重点观察启动期和有运动窗口。
-2. 第一轮继续：评估硬件解码（用 NAS 芯片的视频解码单元替代纯 CPU 解码）的可落地性，作为多路摄像头的进一步安全余量。
-3. 第二轮备选：将 `camera.video_quality` 切到 `LOW`、降低输入 FPS 或限制 Gate 抽检帧数。这会牺牲一部分画面细节或瞬时事件敏感度，不属于“质量不打折”方案。
+1. 第一轮继续：处理启动期 CPU 尖峰，避免后端重启后的旧窗口/初始化阶段短时超过 50% 宿主 CPU。
+2. 第一轮继续：用 2-4 路摄像头复验默认 1000ms 下的峰值，重点观察有运动窗口和 Omni 触发窗口。
+3. 第一轮继续：评估硬件解码（用 NAS 芯片的视频解码单元替代纯 CPU 解码）的可落地性，作为多路摄像头的进一步安全余量。
+4. 第二轮备选：将 `camera.video_quality` 切到 `LOW`、降低输入 FPS 或限制 Gate 抽检帧数。这会牺牲一部分画面细节或瞬时事件敏感度，不属于“质量不打折”方案。
