@@ -1091,9 +1091,12 @@ class MiotService:
             _, c = set_cameras_in_use(self._kv_repo, enable_dids, True)
             changed = changed or c
         if changed:
-            # KV 写入后热同步感知订阅(不触发 refresh_cameras,不重建 camera manager,
-            # 不扰动 watch 视频流)。_sync_camera_adapter → sync_devices 只影响
-            # camera_adapter 里的 perception decode 订阅,与 watch WS 完全独立。
+            try:
+                await self._miot_proxy.prune_disabled_camera_managers()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("prune disabled camera managers failed: %s", e)
+            # KV 写入后热同步感知订阅，并释放已停用摄像头的 SDK manager。
+            # 低配 NAS 上仅取消 callback 不够，底层解码线程仍可能持续占 CPU。
             await self._sync_camera_adapter()
         # 返回受影响的相机，结构与 list_cameras_with_state 一致
         all_cameras = await self.list_cameras_with_state()

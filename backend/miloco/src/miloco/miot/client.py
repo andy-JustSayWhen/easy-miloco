@@ -37,7 +37,7 @@ from pydantic_core import to_jsonable_python
 from miloco.config import get_settings
 from miloco.database.kv_repo import AuthConfigKeys, DeviceInfoKeys, KVRepo
 from miloco.miot.camera_handler import CameraVisionHandler
-from miloco.miot.filter import is_home_allowed
+from miloco.miot.filter import denied_camera_dids, is_home_allowed
 from miloco.miot.mips_listeners import (
     BindEventListener,
     DeviceMetaEventListener,
@@ -816,6 +816,36 @@ class MiotProxy:
             logger.warning("Camera %s stream manager rebuilt", did)
             return True
 
+    async def prune_disabled_camera_managers(self) -> list[str]:
+        """Destroy camera managers for cameras outside the enabled scope.
+
+        Scope-disabled cameras must release SDK decode threads on low-end NAS
+        devices. Watch streams can recreate managers by re-enabling the camera.
+        """
+        denied = denied_camera_dids(self._kv_repo)
+        removed: list[str] = []
+        for did in list(self._camera_img_managers.keys()):
+            cam = self._camera_info_dict.get(did)
+            if did not in denied and (
+                cam is None or is_home_allowed(self._kv_repo, getattr(cam, "home_id", None))
+            ):
+                continue
+            try:
+                await self._miot_client.unregister_lan_device_changed_async(did=did)
+            except Exception as e:  # noqa: BLE001
+                logger.debug("Camera %s LAN callback unregister failed: %s", did, e)
+            manager = self._camera_img_managers.pop(did, None)
+            if manager is None:
+                continue
+            try:
+                await manager.destroy()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Camera %s manager destroy failed: %s", did, e)
+            removed.append(did)
+        if removed:
+            logger.warning("Destroyed %d disabled camera managers", len(removed))
+        return removed
+
     async def get_cameras(self) -> dict[str, MIoTCameraInfo]:
         if not self._camera_info_dict:
             logger.warning("No camera info dict found, refreshing cameras")
@@ -871,7 +901,10 @@ class MiotProxy:
                 await self._prime_camera_lan_overrides(cameras)
                 # Publish before registering so callbacks resolve against the new dict.
                 self._camera_info_dict = cameras
+                denied = denied_camera_dids(self._kv_repo)
                 for camera_did in cameras.keys():
+                    if camera_did in denied:
+                        continue
                     if camera_did not in self._camera_img_managers:
                         if not is_home_allowed(
                             self._kv_repo, cameras[camera_did].home_id
@@ -893,15 +926,17 @@ class MiotProxy:
 
                 for camera_did in list(self._camera_img_managers.keys()):
                     cam = cameras.get(camera_did)
-                    # scope=false 时不 destroy,只有摄像头真正从账号消失才 destroy。
-                    if cam is None:
+                    if (
+                        cam is None
+                        or camera_did in denied
+                        or not is_home_allowed(self._kv_repo, cam.home_id)
+                    ):
                         await self._miot_client.unregister_lan_device_changed_async(
                             did=camera_did
                         )
                         await self._camera_img_managers[camera_did].destroy()
                         del self._camera_img_managers[camera_did]
                     else:
-                        # cam 仍在账号里,manager 保活(无论 scope 状态)。
                         logger.debug(
                             "Manager %s kept alive for watch stream", camera_did
                         )
