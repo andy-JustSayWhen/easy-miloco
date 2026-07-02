@@ -20,6 +20,8 @@ import { useTranslation } from "react-i18next";
 import {
   getMemorySeries,
   getMemorySnapshot,
+  getPerformanceBudget,
+  getPerformanceConfig,
   getUname,
   getPerfDropSeries,
   getPerfGatePassRate,
@@ -56,6 +58,7 @@ import { PerfGateScoreTable } from "./PerfGateScoreTable";
 import { PerfStageTable } from "./PerfStageTable";
 import { PerfTraceList } from "./PerfTraceList";
 import { PerfTraceTimingChart } from "./PerfTraceTimingChart";
+import { PerformanceTuningPanel } from "./PerformanceTuningPanel";
 
 export function PerfPage() {
   const { t, i18n } = useTranslation();
@@ -131,6 +134,12 @@ export function PerfPage() {
     [windowKey, bucket],
     { errorLabel: t("perf.errMemSeries") },
   );
+  const budget = useAsync(() => getPerformanceBudget(), [], {
+    errorLabel: t("perf.errBudget"),
+  });
+  const perfConfig = useAsync(() => getPerformanceConfig(), [], {
+    errorLabel: t("perf.errPerfConfig"),
+  });
   // uname 是进程级静态信息，api 层模块级缓存，整 app 仅请求一次
   const [uname, setUname] = useState<string | undefined>();
   useEffect(() => {
@@ -150,6 +159,8 @@ export function PerfPage() {
     agentRuns.reload();
     memSnapshot.reload();
     memSeries.reload();
+    budget.reload();
+    perfConfig.reload();
   };
 
   // 30s 自动刷新。窗口切换会重置 timer。
@@ -198,6 +209,12 @@ export function PerfPage() {
           </button>
         </div>
       </section>
+
+      <PerformanceTuningPanel
+        budgetState={budget}
+        configState={perfConfig}
+        onReady={reloadAll}
+      />
 
       {/* 1. KPI 卡 */}
       <PerfKpiCards state={summary} />

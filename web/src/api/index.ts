@@ -25,6 +25,11 @@ import type {
   PerfGateScoreRow,
   PerfLatencyPoint,
   PerfAgentRun,
+  PerformanceApplyResult,
+  PerformanceBudget,
+  PerformanceConfigState,
+  PerformanceDiagnosis,
+  PerformanceParamValue,
   PerformanceReportDetail,
   PerformanceReportMeta,
   PerfOmniErrorPoint,
@@ -51,6 +56,12 @@ import type {
 export type { ScopeHome };
 
 const impl: typeof realImpl = realImpl;
+
+type Normal<T> = {
+  code: number;
+  message: string;
+  data: T;
+};
 
 // 当前 backend 多家庭未上线,前端 homeId 永远 "primary"。isPrimary 永真,
 // 但保留兜底分支让未来 backend 接通多家庭时直接挂 listScopeHomes 路径。
@@ -533,4 +544,36 @@ export async function getMemorySeries(
   return apiFetch<MemorySeries>(
     `/api/monitor/memory/series?window=${w}&bucket=${bucket}`,
   );
+}
+
+export async function getPerformanceBudget(): Promise<PerformanceBudget> {
+  const body = await apiFetch<Normal<PerformanceBudget>>(
+    "/api/admin/performance-budget",
+  );
+  return body.data;
+}
+
+export async function getPerformanceConfig(): Promise<PerformanceConfigState> {
+  const body = await apiFetch<Normal<PerformanceConfigState>>(
+    "/api/admin/performance-config",
+  );
+  return body.data;
+}
+
+export async function diagnosePerformance(): Promise<PerformanceDiagnosis> {
+  const body = await apiFetch<Normal<PerformanceDiagnosis>>(
+    "/api/admin/performance-diagnose",
+    { method: "POST", body: JSON.stringify({}) },
+  );
+  return body.data;
+}
+
+export async function applyPerformanceConfig(
+  values: Record<string, PerformanceParamValue>,
+): Promise<PerformanceApplyResult> {
+  const body = await apiFetch<Normal<PerformanceApplyResult>>(
+    "/api/admin/performance-config/apply",
+    { method: "POST", body: JSON.stringify({ values }) },
+  );
+  return body.data;
 }

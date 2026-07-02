@@ -23,6 +23,11 @@ def set_resource_monitor(rm: ResourceMonitor, start_time: float) -> None:
     _start_time = start_time
 
 
+def get_resource_monitor() -> ResourceMonitor | None:
+    """Return the process resource monitor when bootstrap has initialized it."""
+    return _resource_monitor
+
+
 def _get_uname() -> str | None:
     try:
         u = os.uname()

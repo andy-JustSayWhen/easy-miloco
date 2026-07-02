@@ -10,7 +10,7 @@ import logging
 import time
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, StrictBool
 
@@ -19,6 +19,13 @@ from miloco.admin.backup_export import (
     BackupExportError,
     build_agent_restore_pack,
     normalize_assets,
+)
+from miloco.admin.performance_tuning import (
+    PerformanceConfigApplyBody,
+    apply_performance_config,
+    build_performance_budget_payload,
+    build_performance_config_payload,
+    run_performance_diagnosis,
 )
 from miloco.config import get_settings
 from miloco.database.token_usage_repo import get_token_usage_repo
@@ -160,6 +167,48 @@ def clear_token_usage(current_user: str = Depends(verify_token)):
     """删除 token_usage + token_usage_daily 全部行，返回各表删除条数。供重置统计用。"""
     deleted = get_token_usage_repo().clear_all()
     return NormalResponse(code=0, message="ok", data={"deleted": deleted})
+
+
+@router.get(
+    "/performance-budget",
+    summary="运行期 CPU/RAM 预算状态",
+    response_model=NormalResponse,
+)
+def get_performance_budget(current_user: str = Depends(verify_token)):
+    return NormalResponse(code=0, message="ok", data=build_performance_budget_payload())
+
+
+@router.get(
+    "/performance-config",
+    summary="可调性能参数",
+    response_model=NormalResponse,
+)
+def get_performance_config(current_user: str = Depends(verify_token)):
+    return NormalResponse(code=0, message="ok", data=build_performance_config_payload())
+
+
+@router.post(
+    "/performance-diagnose",
+    summary="OpenClaw Agent 性能诊断",
+    response_model=NormalResponse,
+)
+async def post_performance_diagnose(
+    request: Request, current_user: str = Depends(verify_token)
+):
+    diagnosis = await run_performance_diagnosis(request)
+    return NormalResponse(code=0, message="ok", data=diagnosis)
+
+
+@router.post(
+    "/performance-config/apply",
+    summary="写入性能参数并重启后端",
+    response_model=NormalResponse,
+)
+def post_performance_config_apply(
+    body: PerformanceConfigApplyBody, current_user: str = Depends(verify_token)
+):
+    result = apply_performance_config(body.values)
+    return NormalResponse(code=0, message="ok", data=result)
 
 
 # ─── debug 开关(同步 runtime override + .debug_observability 文件 flag) ────────

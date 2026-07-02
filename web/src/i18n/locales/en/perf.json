@@ -23,6 +23,8 @@
     "errAgentRuns": "Couldn't load agent run list",
     "errMemSnapshot": "Couldn't load memory snapshot",
     "errMemSeries": "Couldn't load memory time series",
+    "errBudget": "Couldn't load resource budget",
+    "errPerfConfig": "Couldn't load performance config",
 
     "loading": "Loading…",
     "noData": "No data in the selected period.",
@@ -162,7 +164,27 @@
     "timingTitle": "Recent latency",
     "timingSubtitle": "P50 / P75 / P95 / P99 aggregated by time bucket",
     "timingEmpty": "No data in the selected period.",
-    "timingChartAria": "Recent latency line chart"
+    "timingChartAria": "Recent latency line chart",
+
+    "tuningTitle": "Runtime resource center",
+    "tuningSubtitle": "CPU/RAM budget, OpenClaw Agent diagnosis, config apply, and backend restart",
+    "tuningDiagnose": "Diagnose",
+    "tuningDiagnosing": "Diagnosing…",
+    "tuningApply": "Apply and restart",
+    "tuningApplying": "Applying…",
+    "tuningCpuBudget": "CPU < 50% host capacity",
+    "tuningRamBudget": "RAM < 50% host memory",
+    "tuningBudget": "Budget",
+    "tuningDiagnosisReady": "Agent recommendation has been copied into the editable draft.",
+    "tuningRestarting": "Backend is restarting; this page will refresh when it is back.",
+    "tuningRestarted": "Backend is back online.",
+    "tuningInvalidNumber": "enter a valid number",
+    "tuningBottlenecks": "Bottlenecks",
+    "tuningTradeoffs": "Tradeoffs",
+    "tuningParam": "Parameter",
+    "tuningCurrent": "Current",
+    "tuningValue": "Draft value",
+    "tuningImpact": "Impact"
   },
   "perfReports": {
     "title": "Performance Reports",

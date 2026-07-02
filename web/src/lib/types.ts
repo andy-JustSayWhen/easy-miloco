@@ -587,6 +587,63 @@ export interface MemorySeries {
   points: MemoryPoint[];
 }
 
+// === Runtime performance tuning (/admin/performance-*) ===
+
+export type PerformanceParamValue = string | number | boolean;
+
+export interface PerformanceConfigParam {
+  path: string;
+  type: "integer" | "number" | "boolean" | "string";
+  label: string;
+  description: string;
+  value: PerformanceParamValue | null;
+  min?: number | null;
+  max?: number | null;
+  step?: number | null;
+  options?: PerformanceParamValue[] | null;
+  impact: string;
+  requires_backend_restart: boolean;
+}
+
+export interface PerformanceConfigState {
+  params: PerformanceConfigParam[];
+  requires_backend_restart: boolean;
+}
+
+export interface PerformanceBudget {
+  ts: number;
+  cpu_pct: number;
+  cpu_total_pct: number;
+  cpu_budget_pct: number;
+  cpu_ratio: number;
+  cpu_over_budget: boolean;
+  rss_mb: number;
+  host_total_memory_mb: number;
+  memory_budget_mb: number;
+  memory_ratio: number;
+  memory_over_budget: boolean;
+}
+
+export interface PerformanceDiagnosis {
+  summary: string;
+  bottlenecks: string[];
+  recommended_preset: string;
+  recommended_config: Record<string, PerformanceParamValue>;
+  expected_tradeoffs: string[];
+  risk_level: string;
+  requires_backend_restart: true;
+  run_id?: string;
+  trace_id?: string;
+  webhook_rtt_ms?: number;
+}
+
+export interface PerformanceApplyResult {
+  applied: Record<string, PerformanceParamValue>;
+  backend_restart_required: boolean;
+  backend_restart_triggered: boolean;
+  restart?: { scheduled: boolean; command: string };
+}
+
 // === Monitor meta (/monitor/) ===
 
 export interface MonitorMeta {
