@@ -8,6 +8,8 @@ miot SDK 单元测试 — 不依赖真实设备或网络，可在 CI 中直接�
 
 # ruff: noqa: E402  — intentional block-style imports, each test section imports its own module
 
+import asyncio
+
 import pytest
 
 # ─── error ───────────────────────────────────────────────────────────────────
@@ -143,7 +145,7 @@ async def test_storage_creates_directory(tmp_path):
 # ─── decoder RingBuffer ───────────────────────────────────────────────────────
 
 
-from miot.decoder import MIoTMediaRingBuffer
+from miot.decoder import MIoTMediaDecoder, MIoTMediaRingBuffer
 from miot.types import MIoTCameraCodec, MIoTCameraFrameData, MIoTCameraFrameType
 
 
@@ -212,6 +214,36 @@ def test_ring_buffer_stop_clears_buffers():
     # After stop(), _video_buffer and _audio_buffer should be empty
     assert len(rb._video_buffer) == 0
     assert len(rb._audio_buffer) == 0
+
+
+async def _noop_video_callback(data: bytes, ts: int, channel: int) -> None:
+    return None
+
+
+async def _noop_video_frame_callback(
+    frame, ts: int, channel: int, recv_unix_ms: int, decoded_unix_ms: int
+) -> None:
+    return None
+
+
+def test_decoder_rate_limits_video_frame_callbacks():
+    """Decoded BGR frame callbacks should honor frame_interval."""
+    loop = asyncio.new_event_loop()
+    try:
+        decoder = MIoTMediaDecoder(
+            frame_interval=1000,
+            video_callback=_noop_video_callback,
+            video_frame_callback=_noop_video_frame_callback,
+            main_loop=loop,
+        )
+        assert decoder._should_emit_video_frame(10_000) is True
+        assert decoder._should_emit_video_frame(10_500) is False
+        assert decoder._should_emit_video_frame(10_999) is False
+        assert decoder._should_emit_video_frame(11_000) is True
+        assert decoder._should_emit_video_frame(11_999) is False
+        assert decoder._should_emit_video_frame(12_000) is True
+    finally:
+        loop.close()
 
 
 # ─── _is_key_access_unit (NAL byte-stream key detection) ──────────────────────

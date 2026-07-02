@@ -190,6 +190,7 @@ class MIoTMediaDecoder(threading.Thread):
     _current_jpg_width: int
     _current_jpg_height: int
     _last_jpeg_ts: int
+    _last_video_frame_ts: int
 
     def __init__(
         self,
@@ -230,6 +231,7 @@ class MIoTMediaDecoder(threading.Thread):
         self._resampler = None  # type: ignore
 
         self._last_jpeg_ts = 0
+        self._last_video_frame_ts = 0
 
     def run(self) -> None:
         """Start the decoder."""
@@ -280,6 +282,16 @@ class MIoTMediaDecoder(threading.Thread):
                 return f"{codec_name}_v4l2m2m"
         return codec_name
 
+    def _should_emit_video_frame(self, now_ts: int) -> bool:
+        """Rate-limit decoded BGR frame callbacks using frame_interval."""
+        if self._last_video_frame_ts <= 0:
+            self._last_video_frame_ts = now_ts
+            return True
+        if now_ts - self._last_video_frame_ts < self._frame_interval:
+            return False
+        self._last_video_frame_ts = now_ts
+        return True
+
     def _on_video_callback(self, frame_data: MIoTCameraFrameData) -> None:
         if not self._video_decoder:
             # Create video decoder
@@ -291,11 +303,15 @@ class MIoTMediaDecoder(threading.Thread):
         pkt = Packet(frame_data.data)
         frames: List[VideoFrame] = self._video_decoder.decode(pkt)  # type: ignore
         decoded_unix_ms = int(time.time() * 1000)
-        # Emit decoded frames as BGR numpy arrays (no rate limiting).
-        # Converting to ndarray HERE in the decoder thread avoids cross-thread
-        # FFmpeg access — the main thread only ever sees numpy data.
+        # Emit decoded frames as BGR numpy arrays at the configured sampling
+        # interval. The decoder still consumes every packet so H.264/H.265
+        # reference frames stay valid; only expensive ndarray conversion and
+        # downstream perception work are skipped between selected frames.
         if self._video_frame_callback and frames:
             for frame in frames:
+                now_ts = int(time.time() * 1000)
+                if not self._should_emit_video_frame(now_ts):
+                    continue
                 try:
                     bgr = frame.to_ndarray(format="bgr24").astype("uint8")
                 except Exception as e:
