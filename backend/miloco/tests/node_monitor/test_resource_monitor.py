@@ -119,6 +119,23 @@ class TestThread:
 
 
 class TestMemoryCollect:
+    def test_collect_skips_memory_detail_until_interval(self, tmp_db, tmp_log_dir):
+        rm = ResourceMonitor(get_monitor(), db_path=tmp_db, log_dir=tmp_log_dir)
+        with (
+            patch(
+                "miloco.node_monitor.resource_monitor.parse_smaps",
+                return_value=_make_smaps(),
+            ) as smaps,
+            patch(
+                "miloco.node_monitor.resource_monitor.sample_py_heap",
+                return_value=_make_py(),
+            ) as py_heap,
+        ):
+            rm._collect()
+        smaps.assert_not_called()
+        py_heap.assert_not_called()
+        assert len(rm._memory_ring) == 0
+
     def test_collect_appends_point_and_updates_both_latests(self, tmp_db, tmp_log_dir):
         rm = ResourceMonitor(get_monitor(), db_path=tmp_db, log_dir=tmp_log_dir)
         with (
@@ -131,7 +148,7 @@ class TestMemoryCollect:
                 return_value=_make_py(),
             ),
         ):
-            rm._collect()
+            rm._collect(force_memory=True)
         assert len(rm._memory_ring) == 1
         assert rm._memory_latest is not None
         assert rm._py_heap_latest is not None
@@ -153,7 +170,7 @@ class TestMemoryCollect:
             ),
         ):
             for _ in range(MEMORY_RING_MAXLEN + 2):
-                rm._collect()
+                rm._collect(force_memory=True)
         assert len(rm._memory_ring) == MEMORY_RING_MAXLEN
 
     def test_series_window_filter(self, tmp_db, tmp_log_dir):
@@ -198,7 +215,7 @@ class TestMemoryCollect:
             "miloco.node_monitor.resource_monitor.sample_py_heap",
             return_value=_make_py(),
         ):
-            rm._collect()
+            rm._collect(force_memory=True)
         latest = rm.get_memory_latest()
         assert latest is not None
         assert "total_rss_kb" not in latest
@@ -216,7 +233,7 @@ class TestMemoryCollect:
                 return_value=_make_py(),
             ),
         ):
-            rm._collect()
+            rm._collect(force_memory=True)
         first_rss = rm._memory_latest.total_rss_kb
         with (
             patch(
@@ -228,7 +245,7 @@ class TestMemoryCollect:
                 return_value=_make_py(),
             ),
         ):
-            rm._collect()
+            rm._collect(force_memory=True)
         assert rm._memory_latest.total_rss_kb == first_rss
         assert rm._mem_available is True
 
@@ -244,7 +261,7 @@ class TestMemoryCollect:
                 side_effect=RuntimeError("boom"),
             ),
         ):
-            rm._collect()
+            rm._collect(force_memory=True)
         assert len(rm._memory_ring) == 1
         assert rm._memory_latest is not None
         assert rm._py_heap_latest is None
@@ -253,7 +270,7 @@ class TestMemoryCollect:
         rm = ResourceMonitor(get_monitor(), db_path=tmp_db, log_dir=tmp_log_dir)
         with (
             patch(
-                "miloco.node_monitor.resource_monitor.parse_smaps",
+                "miloco.node_monitor.resource_monitor._sample_mem",
                 side_effect=OSError(),
             ),
             patch(
@@ -261,7 +278,7 @@ class TestMemoryCollect:
                 side_effect=RuntimeError(),
             ),
         ):
-            rm._collect()
+            rm._collect(force_memory=True)
         assert len(rm._memory_ring) == 0
 
     def test_resources_data_unaffected(self, tmp_db, tmp_log_dir):
@@ -277,7 +294,7 @@ class TestMemoryCollect:
                 return_value=_make_py(),
             ),
         ):
-            rm._collect()
+            rm._collect(force_memory=True)
         data = rm.get_data()
         assert "rss_mb" in data and "cpu_pct" in data and "fd" in data
         assert "db_size_mb" in data and "log_size_mb" in data

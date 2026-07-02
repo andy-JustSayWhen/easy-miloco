@@ -51,6 +51,7 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 - Gate 的视觉检测改为流式比较，保持同样判定结果，同时减少窗口内临时灰度图驻留。
 - 实时窗口 drain 后只保留最近一个已处理窗口给主动查询复用，避免 `keep` 模式把历史解码帧长期留在 RSS 中。
 - BGR 帧回调现在遵守 `camera.frame_interval`。此前该参数只节流 JPEG 预览输出，不节流感知使用的 BGR 帧，导致 60 秒窗口仍进入 400 多帧。
+- 资源监控的内存明细采样延后并降频。`smaps`（Linux 进程内存区域明细）和 Python heap（Python 对象堆）采样本身会遍历大量进程状态，在低配 NAS 上可能制造启动期或周期性 CPU 尖峰；运行期默认只保留轻量 CPU/RSS 采样，明细内存快照按较低频率采集。
 
 ## 第一轮：不降低运行质量
 
@@ -134,6 +135,7 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 | 第一轮-CPU A/B | 仅把 `MILOCO_CAMERA__FRAME_INTERVAL` 改为 5000ms，不改代码 | 无代码改动 | 4 分钟采样：新 trace 仍有 367-453 帧/60s；CPU 峰值 317.8%、平均 267.5%；RSS 峰值 2457.1MB | 证明旧代码中 `frame_interval` 没有节流 BGR 感知帧。源码对应：`MIoTMediaDecoder` 只用该参数节流 JPEG 预览，`decode_video_frame` 路径标注为 no rate limiting |
 | 第一轮-CPU | `MIoTMediaDecoder` 对 BGR 帧回调也应用 `frame_interval`；仍解码每个 H.264/H.265 包以保持参考帧有效，只跳过间隔内的 BGR 转换和下游感知 | `pytest backend/miot/tests/test_units.py backend/miloco/tests/perception/test_camera_adapter_decode_latency.py backend/miloco/tests/perception/test_latency_rtf.py backend/miloco/tests/perception/test_stream_buffer_overflow.py backend/miloco/tests/perception/engine/gate/test_visual_gate.py -q`：91 passed；ruff 通过 | 5000ms 验证：新窗口降到 12 帧/60s，稳定期 CPU 峰值 115.6%；1000ms 默认质量复验：新窗口 52-58 帧/60s，运行期 CPU 约 200.2-210.8%，仍擦线超预算 | 证明节流修复有效，但默认质量下还需要继续压非跳过窗口和 Omni 上传前编码峰值 |
 | 第一轮-CPU | Omni 上传 mp4 编码使用 `ultrafast/zerolatency` H.264 参数；不改上传帧数、分辨率、内容，只降低编码器计算量 | `pytest backend/miloco/tests/perception/engine/omni/test_prompt_builder.py backend/miloco/tests/perception/engine/test_pipeline.py backend/miot/tests/test_units.py ... -q`：243 passed；ruff 通过；本地 `_encode_video_mp4` 可生成 payload | NAS 默认 1000ms 复验：热补丁后非跳过 Omni 窗口 CPU 约 173-176%，跳过窗口稳定期 CPU 峰值 164.0%，RSS 峰值 809.3MB（稳定跳过期 689.1MB）；窗口 52-58 帧/60s | 单路桌面摄像头默认采样质量下，运行期 CPU/RAM 已低于预算；启动后旧窗口/启动期仍可出现 300%+ 尖峰，需要单独处理或在验收口径中排除启动阶段 |
+| 第一轮-观测 | 资源监控延后并降频采集内存明细；运行期每分钟仍更新 CPU/RSS，重型 `smaps`/Python heap 明细默认 120 秒后开始、300 秒一次 | `pytest backend/miloco/tests/node_monitor/test_resource_monitor.py -q`：19 passed；`ruff check backend/miloco/src/miloco/node_monitor/resource_monitor.py backend/miloco/tests/node_monitor/test_resource_monitor.py` 通过 | NAS 默认 1000ms、一路桌面摄像头、7 分钟只读采样：CPU 峰值 172.4%（4 核宿主约 43.1%），平均 166.2%；RSS 峰值 694.0MB；覆盖 8 个 trace，其中 1 个 Omni 窗口 `omni_ms=33492.9` | 运行期观测链路不再制造明显超预算尖峰；单路默认质量在含 Omni 调用窗口下仍低于 CPU/RAM 50% 预算 |
 
 ## 当前结论（2026-07-03 NAS 实测）
 
@@ -145,11 +147,13 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 
 默认 1000ms 下，单靠 BGR 节流仍有非跳过窗口在 200% CPU 预算边缘。继续把 Omni 上传 mp4 编码改成低 CPU 的 `ultrafast/zerolatency` 参数后，默认采样质量下的运行期采样达标：非跳过 Omni 窗口 CPU 约 173-176%，跳过窗口稳定期 CPU 峰值 164.0%，RSS 峰值 809.3MB，均低于 4 核宿主 200% CPU / 约 3905.5MB RAM 预算。
 
-当前结论：单路桌面摄像头的运行期 CPU/RAM 已达成低配 NAS 预算，且使用默认 1000ms 采样间隔，不依赖 5000ms 降频。仍未完成全目标，因为还需要在更长时段、更多摄像头、有人移动、规则触发、Identity/Omni 实际进入的场景下复验最高峰值，并处理或明确排除后端重启/启动期尖峰。
+资源监控自身也可能成为压力来源。早期实现启动后会立即试探完整内存区域采样，后续每 60 秒跟随资源监控采一次 `smaps` 和 Python heap。低配 NAS 上这类遍历会和感知周期争 CPU。延后并降频重型内存明细后，默认 1000ms、一路桌面摄像头、7 分钟运行期复验中，CPU 峰值 172.4%（4 核宿主约 43.1%）、平均 166.2%，RSS 峰值 694.0MB；采样覆盖 8 个 trace，其中 1 个实际进入 Omni 调用，仍低于 CPU/RAM 50% 预算。
+
+当前结论：单路桌面摄像头的运行期 CPU/RAM 已达成低配 NAS 预算，且使用默认 1000ms 采样间隔，不依赖 5000ms 降频。仍未完成全目标，因为还需要在更长时段、更多摄像头、有人移动、规则触发、Identity 实际进入的场景下复验最高峰值，并继续评估摄像头原始码流复用，减少 BGR 重新编码成 MP4 的 CPU 压力。
 
 下一步优先级：
 
-1. 第一轮继续：处理启动期 CPU 尖峰，避免后端重启后的旧窗口/初始化阶段短时超过 50% 宿主 CPU。
-2. 第一轮继续：用 2-4 路摄像头复验默认 1000ms 下的峰值，重点观察有运动窗口和 Omni 触发窗口。
+1. 第一轮继续：评估“原始摄像头压缩包复用/重封装”（remux，只换视频容器、不重新压缩画面），减少 Omni 上传前 BGR → MP4 重新编码的 CPU 压力。
+2. 第一轮继续：用 2-4 路摄像头复验默认 1000ms 下的峰值，重点观察有运动窗口、Identity 和 Omni 触发窗口。
 3. 第一轮继续：评估硬件解码（用 NAS 芯片的视频解码单元替代纯 CPU 解码）的可落地性，作为多路摄像头的进一步安全余量。
 4. 第二轮备选：将 `camera.video_quality` 切到 `LOW`、降低输入 FPS 或限制 Gate 抽检帧数。这会牺牲一部分画面细节或瞬时事件敏感度，不属于“质量不打折”方案。

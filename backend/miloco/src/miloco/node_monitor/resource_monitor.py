@@ -17,6 +17,8 @@ from miloco.node_monitor.vmmap import parse_vmmap
 logger = logging.getLogger(__name__)
 
 RESOURCE_MONITOR_INTERVAL = 60
+MEMORY_DETAIL_INTERVAL = 300
+MEMORY_DETAIL_INITIAL_DELAY = 120
 MEMORY_RING_MAXLEN = 3 * 24 * 60  # 3d @ 60s
 SMAPS_PATH = "/proc/self/smaps"
 TASK_DIR = "/proc/self/task"
@@ -35,7 +37,15 @@ def _sample_mem() -> MemSnapshot:
 class ResourceMonitor:
     """Daemon thread that collects process resource metrics every 60s."""
 
-    def __init__(self, monitor, db_path: str, log_dir: str):
+    def __init__(
+        self,
+        monitor,
+        db_path: str,
+        log_dir: str,
+        *,
+        memory_detail_interval: int = MEMORY_DETAIL_INTERVAL,
+        memory_detail_initial_delay: int = MEMORY_DETAIL_INITIAL_DELAY,
+    ):
         self._monitor = monitor
         self._db_path = db_path
         self._log_dir = log_dir
@@ -51,6 +61,10 @@ class ResourceMonitor:
         self._py_heap_latest: PyHeapSnapshot | None = None
         self._memory_lock = threading.Lock()
         self._mem_available = True
+        self._memory_detail_interval = max(RESOURCE_MONITOR_INTERVAL, memory_detail_interval)
+        self._next_memory_detail_ts = (
+            time.monotonic() + max(0, memory_detail_initial_delay)
+        )
 
     def start(self) -> None:
         self._thread = threading.Thread(
@@ -75,19 +89,11 @@ class ResourceMonitor:
             self._psutil_proc.cpu_percent(interval=0)
         except Exception:
             pass
-        # 启动探测内存 region 采集：失败标记不可用，后续 _collect 跳过该段
-        try:
-            _sample_mem()
-        except Exception as e:
-            self._mem_available = False
-            logger.warning(
-                "memory regions not available, categorization disabled: %s", e
-            )
         self._collect()
         while not self._stop_event.wait(timeout=RESOURCE_MONITOR_INTERVAL):
             self._collect()
 
-    def _collect(self) -> None:
+    def _collect(self, *, force_memory: bool = False) -> None:
         snapshot: dict = {"ts": time.time()}
 
         proc = self._psutil_proc
@@ -125,6 +131,11 @@ class ResourceMonitor:
 
         with self._lock:
             self._data = snapshot
+
+        now_monotonic = time.monotonic()
+        if not force_memory and now_monotonic < self._next_memory_detail_ts:
+            return
+        self._next_memory_detail_ts = now_monotonic + self._memory_detail_interval
 
         # 内存 region + py_heap 采集（两路独立 try，互不影响）
         mem_snap: MemSnapshot | None = None
