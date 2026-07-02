@@ -9,6 +9,7 @@ pack per-window frame-count-weighted aggregates onto the DeviceData.
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -72,6 +73,49 @@ class _StreamProxy(_Proxy):
 
     async def start_camera_decode_audio_stream(self, did, channel, callback):
         return 2
+
+
+class TestCacheFrameSize:
+    def test_cache_frame_max_size_reads_identity_input_config(self, monkeypatch):
+        from miloco.perception.collect import camera_adapter
+
+        settings = SimpleNamespace(
+            perception=SimpleNamespace(
+                engine={
+                    "identity": {
+                        "perception_input_width": 960,
+                        "perception_input_height": 540,
+                    }
+                }
+            )
+        )
+        monkeypatch.setattr(camera_adapter, "get_settings", lambda: settings)
+
+        assert CameraDeviceAdapter._cache_frame_max_size() == (960, 540)
+
+    def test_resize_frame_for_cache_keeps_small_frame_object(self):
+        frame = np.zeros((360, 640, 3), dtype=np.uint8)
+
+        resized = CameraDeviceAdapter._resize_frame_for_cache(
+            frame,
+            max_width=1280,
+            max_height=720,
+        )
+
+        assert resized is frame
+        assert resized.shape == (360, 640, 3)
+
+    def test_resize_frame_for_cache_shrinks_oversized_frame(self):
+        frame = np.zeros((2160, 3840, 3), dtype=np.uint8)
+
+        resized = CameraDeviceAdapter._resize_frame_for_cache(
+            frame,
+            max_width=1280,
+            max_height=720,
+        )
+
+        assert resized.shape == (720, 1280, 3)
+        assert resized.dtype == np.uint8
 
 
 class TestComputeDecodeLatency:

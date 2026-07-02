@@ -11,11 +11,11 @@ buffer handles time-windowed A/V alignment automatically.
 
 from __future__ import annotations
 
-import logging
 import inspect
+import logging
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from miot.types import MIoTCameraInfo
 
@@ -63,6 +63,8 @@ _FIRST_FRAME_FAILURE_COOLDOWN_MS = 5 * 60_000
 _LAN_HINT_FIRST_FRAME_FAILURES_BEFORE_COOLDOWN = 2
 _VIDEO_FRAME_STALE_MS = 30_000
 _ENABLE_CAMERA_AUDIO_STREAM = False
+_DEFAULT_CACHE_FRAME_MAX_WIDTH = 1280
+_DEFAULT_CACHE_FRAME_MAX_HEIGHT = 720
 
 # TODO: 多通道支持
 DEFAULT_VIDEO_CHANNEL = 0
@@ -106,6 +108,69 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
         self._last_connect_fail_ms: dict[str, int] = {}
         self._first_frame_cooldown_until_ms: dict[str, int] = {}
         self._first_frame_failure_counts: dict[str, int] = {}
+
+    @staticmethod
+    def _nested_dict(root: Any, *keys: str) -> dict:
+        node = root
+        for key in keys:
+            if not isinstance(node, dict):
+                return {}
+            node = node.get(key)
+        return node if isinstance(node, dict) else {}
+
+    @staticmethod
+    def _cache_frame_max_size() -> tuple[int, int]:
+        """Return max BGR frame size kept in the collection buffer.
+
+        Downstream identity tracking already letterboxes frames to
+        ``perception.engine.identity.perception_input_width/height``, and
+        Omni video is encoded at short-edge 512. Keeping larger raw BGR frames
+        in the 60s collection window only inflates RSS before those later
+        downsample steps run.
+        """
+        try:
+            identity_cfg = CameraDeviceAdapter._nested_dict(
+                get_settings().perception.engine, "identity"
+            )
+            width = int(
+                identity_cfg.get(
+                    "perception_input_width", _DEFAULT_CACHE_FRAME_MAX_WIDTH
+                )
+                or _DEFAULT_CACHE_FRAME_MAX_WIDTH
+            )
+            height = int(
+                identity_cfg.get(
+                    "perception_input_height", _DEFAULT_CACHE_FRAME_MAX_HEIGHT
+                )
+                or _DEFAULT_CACHE_FRAME_MAX_HEIGHT
+            )
+        except Exception:
+            width = _DEFAULT_CACHE_FRAME_MAX_WIDTH
+            height = _DEFAULT_CACHE_FRAME_MAX_HEIGHT
+        return max(1, width), max(1, height)
+
+    @staticmethod
+    def _resize_frame_for_cache(
+        frame: "NDArray[np.uint8]",
+        *,
+        max_width: int,
+        max_height: int,
+    ) -> "NDArray[np.uint8]":
+        """Shrink oversized decoded BGR frames before they enter long buffers."""
+        height, width = frame.shape[:2]
+        if width <= max_width and height <= max_height:
+            return frame
+
+        import cv2
+
+        scale = min(max_width / width, max_height / height)
+        target_width = max(1, int(round(width * scale)))
+        target_height = max(1, int(round(height * scale)))
+        return cv2.resize(
+            frame,
+            (target_width, target_height),
+            interpolation=cv2.INTER_AREA,
+        )
 
     async def discover_devices(
         self,
@@ -665,6 +730,12 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
                 wall_ms, unix_ms = self._calibrate(state, ts)
                 decode_latency_ms = self._compute_decode_latency(
                     recv_unix_ms, decoded_unix_ms
+                )
+                max_width, max_height = self._cache_frame_max_size()
+                frame = self._resize_frame_for_cache(
+                    frame,
+                    max_width=max_width,
+                    max_height=max_height,
                 )
                 decoded = DecodedVideoFrame(
                     frame=frame,

@@ -127,3 +127,18 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 | --- | --- | --- | --- | --- |
 | 第一轮-准备 | 暴露拉流质量、释放禁用摄像头、Gate 流式比较 | `pytest backend/miloco/tests/perception/engine/gate/test_visual_gate.py` 通过 | 待实测 | 目标是先降低入口解码与 Gate 压力 |
 | 第一轮-内存 | `keep` 模式下已处理窗口只保留最近一个 | `pytest backend/miloco/tests/perception/test_stream_buffer_overflow.py` 通过 | 部署前 2 分钟采样：CPU 峰值 95.0% / 预算 200%，RSS 峰值 5015.6MB / 预算 3905.5MB，内存持续超限；`identity_ms=0`、`omni_ms=0` | 目标是释放历史解码帧，降低 RSS 峰值 |
+| 第一轮-内存 | 周期结束后调用 `malloc_trim`（glibc 原生堆归还，帮助 NumPy/OpenCV 释放后把页还给系统） | `pytest backend/miloco/tests/perception/test_latency_rtf.py` 通过 | 2 分钟采样：CPU 峰值 271.8% / 预算 200%，RSS 峰值 4541.5MB / 预算 3905.5MB；初始 RSS 会降，但周期内峰值仍超 | 只解决“释放后归还系统”，不能解决“窗口内原始大图太多”的峰值 |
+| 第一轮-内存 | 解码帧进入长窗口缓存前等比缩到身份识别有效上限（默认 1280x720）；低于上限的帧不复制 | `pytest ...test_camera_adapter_decode_latency.py ...test_latency_rtf.py ...test_stream_buffer_overflow.py ...test_visual_gate.py` 54 passed；ruff 通过 | 4 分钟采样：CPU 峰值 328.4% / 预算 200%，RSS 峰值 2457.7MB / 预算 3905.5MB；`gate_video_ms` 从旧样本 7-15s 降到约 2.1-2.4s | RAM 首次达标；CPU 仍超，说明剩余瓶颈主要不在内存缓存，而在持续拉流/解码与少量 Gate |
+| 第一轮-CPU | 创建摄像头实例时关闭未使用的音频流（当前仓库摄像头音频不参与感知，关闭不影响现有视频/身份/Omni 能力） | 同上 54 passed；ruff 通过 | 4 分钟采样：CPU 峰值 357.9%（含启动窗口），稳态约 213-264% / 预算 200%；RSS 峰值 2488.5MB / 预算 3905.5MB；最新 trace 中 `decode_ms` 约 1.17-1.33s、`gate_video_ms` 约 1.8-2.0s、`omni_ms` 为云端等待 | RAM 稳定达标；CPU 有改善但仍未达标。第一轮下一步必须继续处理拉流/解码层，或进入第二轮接受 LOW 质量/更低 FPS/更少 Gate 抽检 |
+
+## 当前结论（2026-07-03 NAS 实测）
+
+在一路桌面摄像头场景下，早期缩帧把 RAM 峰值从 4.5GB 级别压到 2.5GB 内，已经低于 7.8GB 宿主内存的 50% 预算。`gate_video_ms`（本地画面变化检测耗时）也从 7-15 秒级降到约 2 秒。
+
+CPU 仍未达标。最新稳定采样仍在 213-264%（四核宿主上约 53%-66% 总 CPU）之间，超过 200% 预算。由于最新 trace 中 `identity_ms` 接近 0、`omni_ms` 是云端等待、`gate_video_ms` 已降到 2 秒以内，剩余 CPU 大头更可能在摄像头 SDK 拉流/解码（把压缩视频还原成图片）这一段。
+
+下一步优先级：
+
+1. 第一轮继续：验证 `frame_interval` 是否真的节流了 SDK 解码，而不只是节流缓存/预览；如果没有，需要在解码回调注册或 SDK 创建实例处找到真正的抽帧入口。
+2. 第一轮继续：评估硬件解码（用 NAS 芯片的视频解码单元替代纯 CPU 解码）的可落地性。
+3. 第二轮备选：将 `camera.video_quality` 切到 `LOW`、降低输入 FPS 或限制 Gate 抽检帧数。这会牺牲一部分画面细节或瞬时事件敏感度，不属于“质量不打折”方案。

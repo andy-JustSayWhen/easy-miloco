@@ -557,7 +557,7 @@ class MiotProxy:
             await camera_instance.start_async(
                 video_quality,
                 enable_reconnect=True,
-                enable_audio=True,
+                enable_audio=False,
                 pin_code=pin_code,
             )
             camera_img_manager = CameraVisionHandler(

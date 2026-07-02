@@ -9,8 +9,10 @@ Provides two processing paths, both using collector.collect_batch():
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import logging
 import re
+import sys
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -44,9 +46,40 @@ from miloco.perception.types import OnDemandPerceptionResult
 
 logger = logging.getLogger("perf")
 
+_LIBC: ctypes.CDLL | None = None
+_LIBC_TRIM_AVAILABLE: bool | None = None
+
 
 def _ms_since(start: float) -> float:
     return (time.monotonic() - start) * 1000
+
+
+def _malloc_trim() -> bool:
+    """Return freed native heap pages to the OS on glibc Linux."""
+    global _LIBC, _LIBC_TRIM_AVAILABLE
+
+    if sys.platform != "linux":
+        return False
+    if _LIBC_TRIM_AVAILABLE is False:
+        return False
+    try:
+        if _LIBC is None:
+            _LIBC = ctypes.CDLL("libc.so.6")
+            _LIBC.malloc_trim.argtypes = [ctypes.c_size_t]
+            _LIBC.malloc_trim.restype = ctypes.c_int
+        _LIBC_TRIM_AVAILABLE = True
+        return bool(_LIBC.malloc_trim(0))
+    except Exception:
+        _LIBC_TRIM_AVAILABLE = False
+        return False
+
+
+def _release_native_memory() -> None:
+    """Best-effort RSS trim after large OpenCV/NumPy frame buffers are freed."""
+    try:
+        _malloc_trim()
+    except Exception:
+        logger.debug("[perf] native memory trim failed", exc_info=True)
 
 
 # gate 阶段 pipeline 一个 device 写 5 个 key:gate_{did}_ms(总) +
@@ -468,6 +501,7 @@ class PipelineProcessor:
 
             return result
         finally:
+            _release_native_memory()
             reset_trace_id(trace_token)
 
     def _publish_trace(

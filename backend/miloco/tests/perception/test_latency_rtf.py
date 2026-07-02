@@ -67,3 +67,25 @@ def test_aggregate_stage_ms_omni_max_gate_sum():
     assert gate == 16.0           # sum(10+6),子模态 999 不计
     assert identity == 50.0       # sum(20+30)
     assert omni == 15494.0        # max(15494,4202),不是 19696(Σ)
+
+
+def test_release_native_memory_calls_malloc_trim(monkeypatch):
+    from miloco.perception import processor
+
+    calls = []
+    monkeypatch.setattr(processor, "_malloc_trim", lambda: calls.append(True) or True)
+
+    processor._release_native_memory()
+
+    assert calls == [True]
+
+
+def test_release_native_memory_is_best_effort(monkeypatch):
+    from miloco.perception import processor
+
+    def boom():
+        raise RuntimeError("trim failed")
+
+    monkeypatch.setattr(processor, "_malloc_trim", boom)
+
+    processor._release_native_memory()
