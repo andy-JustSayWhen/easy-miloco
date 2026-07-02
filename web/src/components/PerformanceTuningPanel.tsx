@@ -4,6 +4,9 @@ import {
   applyPerformanceConfig,
   diagnosePerformance,
   getPerformanceBudget,
+  listScopeCameras,
+  pausePerception,
+  toggleScopeCamera,
 } from "@/api";
 import type { AsyncState } from "@/hooks/useAsync";
 import type {
@@ -392,6 +395,7 @@ export function PerformanceTuningPanel({
   const [diagnosing, setDiagnosing] = useState(false);
   const [applying, setApplying] = useState(false);
   const [restartWaiting, setRestartWaiting] = useState(false);
+  const [hardActionRunning, setHardActionRunning] = useState(false);
   const [pollAttempt, setPollAttempt] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
   const [userTouchedDraft, setUserTouchedDraft] = useState(false);
@@ -478,6 +482,55 @@ export function PerformanceTuningPanel({
     }
   };
 
+  const reduceRealtimeCameras = async () => {
+    setHardActionRunning(true);
+    setMessage("正在把实时感知缩到 1 路摄像头，完成后 CPU 会在 1-2 个感知周期内下降。");
+    try {
+      const cameras = await listScopeCameras();
+      const enabled = cameras.filter((cam) => cam.inUse);
+      if (enabled.length <= 1) {
+        setMessage("当前已经只启用 1 路或更少摄像头，不需要再缩减。");
+        return;
+      }
+      const keep =
+        enabled.find((cam) => cam.connected) ??
+        enabled.find((cam) => cam.isOnline) ??
+        enabled[0];
+      const disableDids = enabled
+        .filter((cam) => cam.did !== keep.did)
+        .map((cam) => cam.did);
+      await toggleScopeCamera(disableDids, false);
+      setMessage(
+        `已只保留「${keep.roomName || keep.name}」参与实时感知，其余 ${disableDids.length} 路已停用。CPU 会稍后刷新。`,
+      );
+      setTimeout(() => {
+        budgetState.reload();
+        onReady();
+      }, 8000);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : String(e));
+    } finally {
+      setHardActionRunning(false);
+    }
+  };
+
+  const pauseRealtimePerception = async () => {
+    setHardActionRunning(true);
+    setMessage("正在暂停实时感知。这会立刻释放摄像头分析负载，但主动看家会停止。");
+    try {
+      await pausePerception();
+      setMessage("实时感知已暂停。Miloco 面板和手动配置仍可用，CPU 应该快速下降。");
+      setTimeout(() => {
+        budgetState.reload();
+        onReady();
+      }, 5000);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : String(e));
+    } finally {
+      setHardActionRunning(false);
+    }
+  };
+
   const budget = budgetState.data;
   const noviceText = noviceDiagnosisText(diagnosis, budget, pendingCount);
 
@@ -560,6 +613,36 @@ export function PerformanceTuningPanel({
         </div>
         <div className="text-body text-text-primary">{noviceText}</div>
       </div>
+
+      {budget?.cpu_over_budget ? (
+        <div className={`rounded-lg px-3 py-3 text-caption ${readableNoticeTone("warning")}`}>
+          <div className="text-body text-text-primary font-medium mb-1">
+            参数应用后 CPU 仍然超预算时，优先做硬降载
+          </div>
+          <div className="text-text-secondary leading-relaxed mb-3">
+            多路摄像头会让低配 NAS 持续解码和推理。下面两个操作不需要懂参数：
+            先只保留 1 路实时摄像头；如果 NAS 已经卡到管理面板都慢，再暂停实时感知。
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={reduceRealtimeCameras}
+              disabled={hardActionRunning || applying || restartWaiting}
+              className="px-3 py-1.5 rounded-md bg-brand-primary text-white disabled:opacity-50 transition-colors"
+            >
+              只保留 1 路实时摄像头
+            </button>
+            <button
+              type="button"
+              onClick={pauseRealtimePerception}
+              disabled={hardActionRunning || applying || restartWaiting}
+              className="px-3 py-1.5 rounded-md border border-error text-error bg-error-bg disabled:opacity-50 transition-colors"
+            >
+              暂停实时感知
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {diagnosis ? (
         <div className="rounded-lg border border-border bg-bg-primary p-3 space-y-3">
