@@ -17,6 +17,7 @@ from miloco.perception.engine.input.video_splitter import create_input_slice
 from miloco.perception.engine.pipeline import (
     _downsample_for_omni,
     _inject_source_meta,
+    _omni_video_encode_stats_dict,
     _record_omni_video_encode_stats,
     _wrap_matched_rules_cb,
     _wrap_suggestions_cb,
@@ -574,6 +575,60 @@ async def test_query_rooms_run_concurrently():
     assert results["kitchen"].answer == "有人在"
 
 
+@pytest.mark.asyncio
+async def test_query_omni_error_preserves_video_encode_stats():
+    from miloco.perception.engine.omni.omni_client import OmniError
+    from miloco.perception.engine.pipeline import run_query_pipeline
+    from miloco.perception.engine.types import OmniVideoEncodeStats
+
+    frames = [_solid(100, 100, 100), _solid(255, 255, 255)]
+    snap = _make_snapshot(
+        "study-room",
+        "cam-study",
+        frames,
+        np.zeros(16000, dtype=np.int16),
+    )
+    batch = BatchedSnapshot(snapshots=[snap])
+
+    config = PerceptionConfig()
+    config.omni.api_key = "test-key"
+    tracking = MockTrackingService(create_default_mock_response())
+
+    def mark_video_stats(identity_packets, *args, **kwargs):
+        identity_packets[0].video_encode_stats = OmniVideoEncodeStats(
+            remux_success=1,
+            input_packets=2,
+            output_bytes=1234,
+        )
+        return {"system_prompt": "s", "user_content": "u", "video_base64": "v"}
+
+    async def fail_call_omni(*args, **kwargs):
+        raise OmniError("write timeout")
+
+    with patch(
+        "miloco.perception.engine.omni.prompt_builder.build_query_prompt",
+        side_effect=mark_video_stats,
+    ), patch(
+        "miloco.perception.engine.omni.omni_client.call_omni",
+        side_effect=fail_call_omni,
+    ):
+        with pytest.raises(OmniError) as exc_info:
+            await run_query_pipeline(
+                batch,
+                "现在有人吗",
+                config,
+                get_tracking_service=lambda did, room_name: tracking,
+            )
+
+    assert exc_info.value.video_encode_stats == {
+        "study-room/remux_success": 1.0,
+        "study-room/remux_fallback": 0.0,
+        "study-room/reencode": 0.0,
+        "study-room/input_packets": 2.0,
+        "study-room/output_bytes": 1234.0,
+    }
+
+
 # =============================================================================
 # Rule data chain test
 # =============================================================================
@@ -735,6 +790,24 @@ def test_record_omni_video_encode_stats_uses_numeric_trace_fields():
         "omni_video_cam1_reencode": 0.0,
         "omni_video_cam1_input_packets": 900.0,
         "omni_video_cam1_output_bytes": 123456.0,
+    }
+
+
+def test_omni_video_encode_stats_dict_uses_numeric_fields():
+    pkt = _make_omni_packet(5)
+    pkt.video_encode_stats = OmniVideoEncodeStats(
+        remux_fallback=1,
+        reencode=1,
+        input_packets=900,
+        output_bytes=456789,
+    )
+
+    assert _omni_video_encode_stats_dict(pkt) == {
+        "remux_success": 0.0,
+        "remux_fallback": 1.0,
+        "reencode": 1.0,
+        "input_packets": 900.0,
+        "output_bytes": 456789.0,
     }
 
 

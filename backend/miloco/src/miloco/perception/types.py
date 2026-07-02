@@ -372,3 +372,10 @@ class OnDemandPerceptionResult(BaseModel):
     """Perception engine's output structure for on-demand perception."""
 
     answer: str = Field(..., description="Answer to the on-demand query")
+    video_encode_stats: dict[str, float] | None = Field(
+        default=None,
+        description=(
+            "Omni video payload encode stats. Numeric fields only, e.g. "
+            "remux_success/reencode/input_packets/output_bytes."
+        ),
+    )

@@ -148,6 +148,7 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 | 第一轮-CPU | Omni 上传优先 remux 原始 H.264/H.265 包；无音频且 remux 成功时跳过 BGR → H.264 重新编码，失败自动回退旧路径 | `pytest backend/miloco/tests/perception/test_encoded_video.py backend/miloco/tests/perception/engine/omni/test_prompt_builder.py backend/miloco/tests/perception/engine/test_pipeline.py backend/miloco/tests/perception/test_camera_adapter_decode_latency.py backend/miloco/tests/perception/test_collector_pack_aggregates.py -q`：188 passed；ruff 通过 | 待 NAS 复验 | 这是第一轮“不降低质量”的真正 CPU 优化点：同样画面内容优先 streamcopy/remux，不重新压缩；仍需 NAS 上测 Omni 触发窗口 CPU 峰值 |
 | 第一轮-CPU | raw packet 关键帧识别改为解析 H.264/H.265 NAL（视频压缩包里的小单元），不再只信 SDK 的 `frame_type`；trace 增加 raw 包、raw 关键帧、窗口 raw 包诊断 | `pytest backend/miloco/tests/perception/test_encoded_video.py backend/miloco/tests/perception/test_camera_adapter_decode_latency.py backend/miloco/tests/perception/test_collector_pack_aggregates.py backend/miloco/tests/perception/engine/omni/test_prompt_builder.py -q`：136 passed；`pytest backend/miloco/tests/perception/engine/omni/test_prompt_builder.py backend/miloco/tests/perception/test_encoded_video.py -q`：107 passed；ruff 通过 | NAS 一路桌面摄像头热补丁后：健康接口 `ok`；Miloco 约 117% CPU、RSS 约 624-647MB；camera raw_video 约 15.22fps、decode_video 约 0.98fps；最近 trace 中 raw 关键帧从 0 变为 25/40/55/68，`encoded_video_packets` 出现 900/899/956/951 等；实际 Omni 窗口 `omni_ms` 约 31.6s，CPU/RAM 仍低于 4 核/7.8GB 宿主 50% 预算 | 证明“同一次拉流资产”已经能进入上传候选窗口，避免了因 SDK 未标 I 帧而永远退回再编码；INFO 级 remux 日志未落盘，仍需下一次补更强的运行期 remux 成功指标 |
 | 第一轮-观测 | Omni 视频构造结果写入 trace timing：`omni_video_*_remux_success`、`*_remux_fallback`、`*_reencode`、`*_input_packets`、`*_output_bytes`；字段全是数字，便于性能页做饼图/柱状图 | `pytest backend/miloco/tests/perception/engine/omni/test_prompt_builder.py backend/miloco/tests/perception/engine/test_pipeline.py backend/miloco/tests/perception/test_encoded_video.py -q`：167 passed；ruff 通过 | NAS 热补丁后服务健康；自然运行约 9 分钟未触发新的 Omni 上传窗口，最新窗口均为 Gate 跳过；Miloco CPU 约 115-125%，RSS 约 536-634MB；trace 继续显示 `encoded_video_packets` 约 899-957、raw 关键帧约 69 | 结构化指标已可用，但本轮静止场景没有新 Omni 窗口，因此还不能宣称真实上传已 remux 成功；需要下一次有人/画面变化触发 Omni 后查询这些字段 |
+| 第一轮-CPU | 主动查询路径补齐 raw 包窗口选择，并在 Omni 失败时保留视频构造统计 | `pytest backend/miloco/tests/perception/test_camera_adapter_decode_latency.py backend/miloco/tests/perception/engine/test_pipeline.py backend/miloco/tests/perception/engine/omni/test_prompt_builder.py backend/miloco/tests/perception/test_encoded_video.py -q`：191 passed；ruff 通过 | NAS 热补丁后主动查询成功：`remux_success=1`、`reencode=0`、`input_packets=297`、`output_bytes=1372689`；回答正常返回；查询后 CPU 约 118.0%、RSS 约 464.6MB；camera `raw_video` 约 15.1fps、`decode_video` 约 0.97fps | 证明“同一次拉流资产”已经能复用到上传云端环节：上传前走 remux（转封装，不重新压缩画面），没有再编码；此前 `input_packets=0` 是主动查询 `drain=False` 未给 raw 包选择窗口导致 |
 
 ## 当前结论（2026-07-03 NAS 实测）
 
@@ -163,13 +164,15 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 
 当前结论：单路桌面摄像头的运行期 CPU/RAM 已达成低配 NAS 预算，且使用默认 1000ms 采样间隔，不依赖 5000ms 降频。仍未完成全目标，因为还需要在更长时段、更多摄像头、有人移动、规则触发、Identity 实际进入的场景下复验最高峰值。
 
-源码已接入摄像头原始码流 remux：无音频窗口会优先复用同一次拉流得到的 H.264/H.265 压缩包生成 MP4，减少 BGR 重新编码成 MP4 的 CPU 压力。2026-07-03 的 NAS 热补丁复验确认，真实摄像头流里的原始压缩包已经被保留下来，NAL 解析能识别关键帧，窗口里也已经出现 `encoded_video_packets`。这说明“拉流资产可复用”链路已经打通到 IdentityPacket。
+源码已接入摄像头原始码流 remux：无音频窗口会优先复用同一次拉流得到的 H.264/H.265 压缩包生成 MP4，减少 BGR 重新编码成 MP4 的 CPU 压力。2026-07-03 的 NAS 热补丁复验确认，真实摄像头流里的原始压缩包已经被保留下来，NAL 解析能识别关键帧，窗口里也已经出现 `encoded_video_packets`。后续主动查询复验进一步确认上传路径已实际 remux 成功：`remux_success=1`、`reencode=0`、`input_packets=297`、`output_bytes=1372689`，且 Omni 正常返回答案。
 
-仍需保留边界：最早的 INFO 级 `event=omni_video_remux_success` 日志没有落盘，不能把“真实 Omni 调用一定 remux 成功”当作强证据。现在代码已把 remux 成功/失败/再编码写入 trace timing，但 2026-07-03 后续自然运行采样期间没有新的 Omni 上传窗口，只有 Gate 跳过窗口。因此当前强证据是：第一，代码和单测证明有 `encoded_video_packets` 时会优先 remux，失败才回退再编码；第二，NAS trace 证明真实运行窗口已经有 `encoded_video_packets`；第三，结构化指标已部署并可在下一次 Omni 窗口直接证明上传路径。
+“为什么还会再编码”的判断口径如下：如果 `input_packets=0`，说明上传云端时没有拿到可复用的原始压缩视频包，只能把 BGR 图片帧重新压成 MP4，这就是 reencode（再编码，重新压缩画面，CPU 高）；如果 `remux_success=1` 且 `reencode=0`，说明复用了同一次拉流资产，只做 remux（转封装，只换 MP4 容器，不重新压缩画面，CPU 低）。本轮之前主动查询出现 `input_packets=0`，根因是 `drain=False` 的非破坏性读取只拿了解码帧，没有给 raw 包选择窗口；补齐窗口后，NAS 实测已经变为 `input_packets=297`。
+
+仍需保留边界：remux 省 CPU，但如果摄像头当前是高码率高清流，转封装后的 MP4 可能比重新编码更大。NAS 上曾观察到约 4.35MB 的 remux 包触发 Omni `WriteTimeout`（写入超时，即请求体上传阶段超时）；后续同一路摄像头在较短窗口中 remux 包约 1.37MB，查询成功。因此“复用拉流资产”已经成立，但多路摄像头或高码率长窗口下仍要继续评估 `camera.video_quality`（拉流质量）和窗口长度对上传体积的影响。
 
 下一步优先级：
 
-1. 第一轮继续：等/触发真实 Omni 窗口，查询 `omni_video_*_remux_success`、`*_reencode`，复验 `encoded_video_packets` 非 0 且上传路径未走 BGR 重新编码。
-2. 第一轮继续：用 2-4 路摄像头复验默认 1000ms 下的峰值，重点观察有运动窗口、Identity 和 Omni 触发窗口。
-3. 第一轮继续：评估硬件解码（用 NAS 芯片的视频解码单元替代纯 CPU 解码）的可落地性，作为多路摄像头的进一步安全余量。
+1. 第一轮继续：用 2-4 路摄像头复验默认 1000ms 下的峰值，重点观察有运动窗口、Identity 和 Omni 触发窗口。
+2. 第一轮继续：评估硬件解码（用 NAS 芯片的视频解码单元替代纯 CPU 解码）的可落地性，作为多路摄像头的进一步安全余量。
+3. 第一轮继续：为 remux 上传体积增加更直观的性能页展示，避免用户只看到空答案，看不出是高码率包上传超时。
 4. 第二轮备选：将 `camera.video_quality` 切到 `LOW`、降低输入 FPS 或限制 Gate 抽检帧数。这会牺牲一部分画面细节或瞬时事件敏感度，不属于“质量不打折”方案。

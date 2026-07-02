@@ -438,6 +438,39 @@ class TestBuildDeviceDataAggregation:
         assert snapshot is not None
         assert [p.data for p in snapshot.encoded_video] == [b"i", b"p1"]
 
+    def test_peek_window_can_attach_keyframe_aligned_encoded_packets(self):
+        adapter = CameraDeviceAdapter(miot_proxy=object())  # type: ignore[arg-type]
+        state = _make_state()
+        state.encoded_video_packets.extend(
+            [
+                EncodedVideoPacket("h264", b"p0", 900, 900, 1, False),
+                EncodedVideoPacket("h264", b"i", 1_500, 1_500, 2, True),
+                EncodedVideoPacket("h264", b"p1", 2_000, 2_000, 3, False),
+            ]
+        )
+        frame = DecodedVideoFrame(
+            frame=np.zeros((2, 2, 3), dtype=np.uint8),
+            stream_ts=2_000,
+            wall_ms=2_000,
+            unix_ms=2_000,
+        )
+        tracks = {
+            "decoded_video": [self._fragment(frame, frame.stream_ts, frame.wall_ms)],
+            "decoded_audio": [],
+        }
+        window_start_ms, window_end_ms = adapter._track_window_ms(tracks)
+
+        dd = adapter._build_device_data(
+            state,
+            tracks,
+            window_start_ms,
+            window_end_ms,
+        )
+
+        assert (window_start_ms, window_end_ms) == (2_000, 2_001)
+        assert dd is not None
+        assert [p.data for p in dd.encoded_video] == [b"i", b"p1"]
+
     def test_audio_only_average(self):
         adapter = CameraDeviceAdapter(miot_proxy=object())  # type: ignore[arg-type]
         state = _make_state()

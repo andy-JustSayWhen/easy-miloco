@@ -125,6 +125,19 @@ def _record_omni_video_encode_stats(
     timing[f"{prefix}output_bytes"] = float(stats.output_bytes)
 
 
+def _omni_video_encode_stats_dict(packet: IdentityPacket) -> dict[str, float] | None:
+    stats = getattr(packet, "video_encode_stats", None)
+    if stats is None:
+        return None
+    return {
+        "remux_success": float(stats.remux_success),
+        "remux_fallback": float(stats.remux_fallback),
+        "reencode": float(stats.reencode),
+        "input_packets": float(stats.input_packets),
+        "output_bytes": float(stats.output_bytes),
+    }
+
+
 def _reraise_first(results: list[Any]) -> None:
     """``gather(return_exceptions=True)`` 后按输入顺序复抛第一个异常（保留原对象，
     OmniError 的 ``partial_timing`` 随之上抛），与串行"首个出错即整轮失败"语义一致。"""
@@ -880,13 +893,25 @@ async def run_query_pipeline(
             query=query,
             last_caption=captions.get(room_name),
         )
-        raw_response = await call_omni(
-            payload, resolve_live_omni_config(config.omni), type="on_demand"
-        )
+        video_encode_stats = _omni_video_encode_stats_dict(room_identity_packets[0])
+        try:
+            raw_response = await call_omni(
+                payload, resolve_live_omni_config(config.omni), type="on_demand"
+            )
+        except OmniError as e:
+            if video_encode_stats:
+                e.video_encode_stats = {
+                    f"{room_name}/{key}": float(value)
+                    for key, value in video_encode_stats.items()
+                }
+            raise
         answer = parse_query_response(raw_response)
         if not answer:
             return None
-        return room_name, QueryOutput(answer=answer)
+        return room_name, QueryOutput(
+            answer=answer,
+            video_encode_stats=video_encode_stats,
+        )
 
     # 各 room 并发（与 run_batch_pipeline 同源：per-room omni 墙钟 Σ→max）。单房间查询
     # 无变化；多房间/全屋查询省 Σ。return_exceptions=True + _reraise_first 保持原"任一

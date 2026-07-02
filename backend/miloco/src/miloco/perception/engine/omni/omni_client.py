@@ -41,10 +41,12 @@ class OmniError(Exception):
         *,
         original: Exception | None = None,
         partial_timing: dict[str, Any] | None = None,
+        video_encode_stats: dict[str, float] | None = None,
     ):
         super().__init__(message)
         self.original = original
         self.partial_timing = partial_timing
+        self.video_encode_stats = video_encode_stats
 
     @property
     def code(self) -> str:

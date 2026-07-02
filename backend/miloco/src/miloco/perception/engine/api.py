@@ -941,14 +941,23 @@ class PerceptionEngine(BasePerceptionEngine):
             )
         except Exception as e:
             logger.error("Query pipeline failed: %s", e, exc_info=True)
-            return OnDemandPerceptionResult(answer="")
+            stats = getattr(e, "video_encode_stats", None)
+            return OnDemandPerceptionResult(answer="", video_encode_stats=stats)
 
         # 与 realtime_perceive 保持一致地推进全局帧序号
         self._global_frame_index += self._config.input.fps * self._config.input.period_sec
 
         # Merge all room answers
         answers = [r.answer for r in results.values() if r.answer]
-        return OnDemandPerceptionResult(answer="\n".join(answers) if answers else "")
+        video_encode_stats: dict[str, float] = {}
+        for room_name, room_result in results.items():
+            stats = room_result.video_encode_stats or {}
+            for key, value in stats.items():
+                video_encode_stats[f"{room_name}/{key}"] = float(value)
+        return OnDemandPerceptionResult(
+            answer="\n".join(answers) if answers else "",
+            video_encode_stats=video_encode_stats or None,
+        )
 
     # ------------------------------------------------------------------
     # Result merging

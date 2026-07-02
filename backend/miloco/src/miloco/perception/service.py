@@ -203,6 +203,7 @@ class PerceptionService:
         return OnDemandPerceptionResultItem(
             answer=result.answer,
             timestamp=ms_to_iso_local(now_ms()),
+            video_encode_stats=result.video_encode_stats,
         )
 
     # ---- Perception logs ----

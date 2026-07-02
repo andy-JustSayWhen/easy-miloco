@@ -474,6 +474,10 @@ class OnDemandPerceptionResultItem(BaseModel):
 
     answer: str = Field(..., description="Perception answer")
     timestamp: str = Field(..., description="ISO 8601 timestamp")
+    video_encode_stats: dict[str, float] | None = Field(
+        default=None,
+        description="Numeric Omni video encode stats for diagnostics.",
+    )
 
 
 class PerceptionLogEntry(BaseModel):
