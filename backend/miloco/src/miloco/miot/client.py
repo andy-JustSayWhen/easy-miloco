@@ -701,7 +701,9 @@ class MiotProxy:
         override = self._get_camera_video_quality_overrides().get(did)
         if override is not None:
             return override
-        configured = str(get_settings().camera.video_quality).strip().upper()
+        configured = str(
+            getattr(get_settings().camera, "video_quality", "HIGH")
+        ).strip().upper()
         if configured == "LOW":
             return MIoTCameraVideoQuality.LOW
         if configured == "HIGH":
