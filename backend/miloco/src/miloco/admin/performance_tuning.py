@@ -255,6 +255,8 @@ REQUIRED_DIAGNOSIS_KEYS = {
     "requires_backend_restart",
 }
 
+DEFAULT_MAX_ENABLED_CAMERAS = 4
+
 
 def _settings_dict() -> dict[str, Any]:
     settings = get_settings()
@@ -460,9 +462,71 @@ def _collect_perf_metrics(request: Request) -> dict[str, Any]:
         conn.close()
 
 
-def build_diagnosis_input(request: Request) -> dict[str, Any]:
+async def _collect_runtime_scope() -> dict[str, Any]:
+    """Collect lightweight runtime scope data for diagnosis.
+
+    This intentionally degrades to an unavailable block. Performance diagnosis
+    must still respond when MIoT or perception services are partially down.
+    """
+    max_enabled_cameras = DEFAULT_MAX_ENABLED_CAMERAS
+    try:
+        from miloco.miot.filter import MAX_ENABLED_CAMERAS
+
+        max_enabled_cameras = MAX_ENABLED_CAMERAS
+    except Exception:
+        pass
+    data: dict[str, Any] = {
+        "available": False,
+        "max_enabled_cameras": max_enabled_cameras,
+    }
+    try:
+        from miloco.manager import get_manager
+
+        manager = get_manager()
+        perception_service = getattr(manager, "perception_service", None)
+        if perception_service is not None:
+            status = perception_service.engine_status()
+            engine = getattr(status, "engine", None)
+            data["perception_engine"] = {
+                "running": bool(getattr(engine, "running", False)),
+                "ready": bool(getattr(engine, "ready", False)),
+                "status": getattr(engine, "status", None),
+            }
+        miot_service = getattr(manager, "miot_service", None)
+        if miot_service is not None:
+            cameras = await miot_service.list_cameras_with_state()
+            enabled = [cam for cam in cameras if cam.get("in_use")]
+            connected = [cam for cam in cameras if cam.get("connected")]
+            online = [cam for cam in cameras if cam.get("is_online")]
+            data.update(
+                {
+                    "available": True,
+                    "camera_count": len(cameras),
+                    "enabled_camera_count": len(enabled),
+                    "connected_camera_count": len(connected),
+                    "online_camera_count": len(online),
+                    "enabled_cameras": [
+                        {
+                            "did": cam.get("did"),
+                            "name": cam.get("name"),
+                            "room_name": cam.get("room_name"),
+                            "connected": bool(cam.get("connected")),
+                            "is_online": bool(cam.get("is_online")),
+                        }
+                        for cam in enabled[:max_enabled_cameras]
+                    ],
+                }
+            )
+    except Exception as e:
+        logger.warning("runtime scope collection failed: %s", e)
+        data["error"] = str(e)
+    return data
+
+
+async def build_diagnosis_input(request: Request) -> dict[str, Any]:
     return {
         "resource": build_performance_budget_payload(),
+        "runtime_scope": await _collect_runtime_scope(),
         "performance": _collect_perf_metrics(request),
         "config": {
             item["path"]: item["value"]
@@ -559,7 +623,9 @@ def _diagnosis_prompt(payload: dict[str, Any]) -> str:
         "Every recommended_config value must fit config_schema min/max/options. "
         "For low-end NAS, prefer period_sec 30-60, window_size 30-60, hold_duration_sec 0-30, "
         "input.fps 1, omni_fps 1, identity_engine.enabled false, and tracking_service_mode mock "
-        "when CPU is far over budget. "
+        "when CPU is far over budget. If runtime_scope.enabled_camera_count is greater than 1 "
+        "and CPU is still over budget, explicitly mention reducing realtime cameras to 1 or "
+        "pausing realtime perception in bottlenecks/expected_tradeoffs. "
         "Target: keep Miloco under 50% host CPU capacity and 50% host memory while preserving "
         "camera perception, identity recognition, and Omni where possible.\n\n"
         f"INPUT_JSON:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
@@ -589,7 +655,7 @@ async def _poll_agent_output(run_id: str) -> str:
 
 
 async def run_performance_diagnosis(request: Request) -> dict[str, Any]:
-    payload = build_diagnosis_input(request)
+    payload = await build_diagnosis_input(request)
     trace_id = f"perf-diagnose-{uuid.uuid4().hex}"
     try:
         run_id, status, rtt_ms = await run_agent_turn(

@@ -37,7 +37,8 @@ def test_budget_uses_half_of_host_cpu_and_ram(monkeypatch):
     assert data["memory_over_budget"] is True
 
 
-def test_diagnosis_input_contains_runtime_perf_and_config(monkeypatch):
+@pytest.mark.asyncio
+async def test_diagnosis_input_contains_runtime_perf_scope_and_config(monkeypatch):
     monkeypatch.setattr(
         pt,
         "build_performance_budget_payload",
@@ -60,12 +61,24 @@ def test_diagnosis_input_contains_runtime_perf_and_config(monkeypatch):
         },
     )
 
-    payload = pt.build_diagnosis_input(SimpleNamespace(app=SimpleNamespace()))
+    async def fake_runtime_scope():
+        return {
+            "available": True,
+            "enabled_camera_count": 3,
+            "connected_camera_count": 3,
+            "perception_engine": {"running": True, "ready": True},
+        }
+
+    monkeypatch.setattr(pt, "_collect_runtime_scope", fake_runtime_scope)
+
+    payload = await pt.build_diagnosis_input(SimpleNamespace(app=SimpleNamespace()))
 
     assert payload["resource"]["cpu_pct"] == 90.0
     assert payload["resource"]["host_total_memory_mb"] == 4096.0
     assert payload["performance"]["stage_p95"]["omni_ms"]["p95"] == 3500
     assert payload["performance"]["summary"]["drop_rate"] == 0.2
+    assert payload["runtime_scope"]["enabled_camera_count"] == 3
+    assert payload["runtime_scope"]["perception_engine"]["running"] is True
     assert "camera.frame_interval" in payload["config"]
     assert "perception.engine.input.period_sec" in payload["config"]
     assert "perception.engine.gate.hold_duration_sec" in payload["config"]
@@ -120,7 +133,10 @@ def test_apply_still_rejects_unknown_config_path():
 
 @pytest.mark.asyncio
 async def test_agent_valid_json_is_parsed(monkeypatch):
-    monkeypatch.setattr(pt, "build_diagnosis_input", lambda request: {"ok": True})
+    async def fake_build_diagnosis_input(request):
+        return {"ok": True}
+
+    monkeypatch.setattr(pt, "build_diagnosis_input", fake_build_diagnosis_input)
 
     async def fake_run_agent_turn(*args, **kwargs):
         return "run-1", "ok", 123.0
@@ -154,7 +170,10 @@ async def test_agent_valid_json_is_parsed(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_agent_unavailable_returns_clear_error(monkeypatch):
-    monkeypatch.setattr(pt, "build_diagnosis_input", lambda request: {"ok": True})
+    async def fake_build_diagnosis_input(request):
+        return {"ok": True}
+
+    monkeypatch.setattr(pt, "build_diagnosis_input", fake_build_diagnosis_input)
 
     async def fake_run_agent_turn(*args, **kwargs):
         raise AgentWebhookException("cannot connect")
