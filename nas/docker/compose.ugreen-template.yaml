@@ -27,10 +27,10 @@ services:
       MILOCO_FORCE_INSTALL: "0"
       MILOCO_AGENT__WEBHOOK_URL: "http://127.0.0.1:18789/miloco/webhook"
 
-      # Miloco 感知模型配置，用于摄像头画面理解。
-      OMNI_MODEL: "xiaomi/mimo-v2.5"  ## 示例："xiaomi/mimo-v2.5"
-      OMNI_BASE_URL: "https://token-plan-sgp.xiaomimimo.com/v1"  ## 示例："https://token-plan-sgp.xiaomimimo.com/v1"
-      OMNI_API_KEY: "填你的 API Key"  ## 必填，保留双引号
+      # Miloco 感知模型配置。用于直接处理摄像头画面。
+      OMNI_MODEL: "xiaomi/mimo-v2.5"  ## 格式厂商+模型名称，比如"xiaomi/mimo-v2.5"
+      OMNI_BASE_URL: "https://token-plan-sgp.xiaomimimo.com/v1"  ## 注意保留双引号
+      OMNI_API_KEY: "填你的 API Key"  ## 注意保留双引号
 
       # OpenClaw 聊天模型配置，只用于 OpenClaw 对话页；不会复用 OMNI_*。
       OPENCLAW_CHAT_MODEL: "mimo-v2.5-pro"  ## 示例："mimo-v2.5-pro"
@@ -40,4 +40,4 @@ services:
       OPENCLAW_CHAT_API: ""  ## 正常留空；排障才填 "openai-completions"、"anthropic-messages"、"openai-responses"
 
     volumes:
-      - /volume1/docker/miloco:/data  ## 如果 Docker 共享目录不同，只改左侧路径；右侧 :/data 不要改
+      - </volume1/docker/miloco>:/data  ## 容器数据路径，把<>内的路径，连同符号<>都替换掉，改为你的真实路径。右侧 :/data 不要改
