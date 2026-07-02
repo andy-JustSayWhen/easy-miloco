@@ -27,29 +27,17 @@ services:
       MILOCO_FORCE_INSTALL: "0"
       MILOCO_AGENT__WEBHOOK_URL: "http://127.0.0.1:18789/miloco/webhook"
 
-      # Miloco 感知模型配置。用于直接处理摄像头画面。
-      OMNI_MODEL: "xiaomi/mimo-v2.5"  ## 格式厂商+模型名称，比如"xiaomi/mimo-v2.5"
-      OMNI_BASE_URL: "https://token-plan-sgp.xiaomimimo.com/v1"  ## 注意保留双引号
-      OMNI_API_KEY: "填你的 API Key"  ## 注意保留双引号
+      # Miloco 感知模型配置，用于摄像头画面理解。
+      OMNI_MODEL: "xiaomi/mimo-v2.5"  ## 示例："xiaomi/mimo-v2.5"
+      OMNI_BASE_URL: "https://token-plan-sgp.xiaomimimo.com/v1"  ## 示例："https://token-plan-sgp.xiaomimimo.com/v1"
+      OMNI_API_KEY: "填你的 API Key"  ## 必填，保留双引号
 
-      # OpenClaw 聊天模型配置。只用于 OpenClaw 对话页；不会复用上面的 OMNI_*。
-      # 普通用户通常只需要改 MODEL、BASE_URL、API_KEY 这 3 行，PROVIDER 和 API 留空会自动推断。
-      # PROVIDER 不是账号类型、计费类型或 Token Plan 类型；普通用户不要填，只有自动推断失败时才排障手填。
-      # 如果从 CC Switch 复制配置：ANTHROPIC_MODEL 填到 MODEL，ANTHROPIC_BASE_URL 原样填到 BASE_URL，ANTHROPIC_AUTH_TOKEN 填到 API_KEY。
-      # BASE_URL 不需要自己补 /v1 或 /anthropic；从服务商控制台/CC Switch 看到什么就先原样复制。
-      # 自动推断会优先看 BASE_URL 域名，再看模型名；例如商汤 BASE_URL 即使用 deepseek-v4-flash 模型名，也会按 SenseNova 处理。
-      # 如果换供应商后重新部署，OpenClaw 旧会话可能仍显示旧模型；请点“+ 新会话”检查新默认模型。
-      # OpenClaw 模型栏里的 Off/Adaptive 是思考/推理模式状态，不是“模型关闭”或“未配置”。
-      # 常见示例：
-      # - 小米 Token Plan：MODEL="mimo-v2.5-pro"，BASE_URL="https://token-plan-sgp.xiaomimimo.com/v1"，PROVIDER 可留空或填 "xiaomi-token-plan"
-      # - DeepSeek：MODEL 按控制台/CC Switch 填，BASE_URL 可填 "https://api.deepseek.com/anthropic"，PROVIDER 可留空或填 "deepseek"
-      # - MiniMax：MODEL 常见为 "MiniMax-M3"，BASE_URL 可填 "https://api.minimaxi.com/anthropic"，PROVIDER 可留空或填 "minimax"
-      # - 商汤日日新/SenseNova：MODEL 按控制台/CC Switch 填，BASE_URL 可填 "https://token.sensenova.cn/v1"，PROVIDER 可留空或填 "sensenova"，API 会自动走 openai-completions
-      OPENCLAW_CHAT_MODEL: "mimo-v2.5-pro"  ## 模型名，照服务商控制台或 CC Switch 的模型名填写，保留双引号
-      OPENCLAW_CHAT_BASE_URL: "https://token-plan-sgp.xiaomimimo.com/v1"  ## API 地址，保留双引号
-      OPENCLAW_CHAT_API_KEY: "填你的 API Key"  ## API Key，保留双引号
-      OPENCLAW_CHAT_PROVIDER: ""  ## 可留空自动推断；排障时才手动填，比如 "deepseek"、"minimax"、"sensenova"、"xiaomi-token-plan"
-      OPENCLAW_CHAT_API: ""  ## 可留空自动推断；排障时才手动填 "openai-completions"、"anthropic-messages" 或 "openai-responses"
+      # OpenClaw 聊天模型配置，只用于 OpenClaw 对话页；不会复用 OMNI_*。
+      OPENCLAW_CHAT_MODEL: "mimo-v2.5-pro"  ## 示例："mimo-v2.5-pro"
+      OPENCLAW_CHAT_BASE_URL: "https://token-plan-sgp.xiaomimimo.com/v1"  ## 示例："https://token-plan-sgp.xiaomimimo.com/v1"
+      OPENCLAW_CHAT_API_KEY: "填你的 API Key"  ## 必填，保留双引号
+      OPENCLAW_CHAT_PROVIDER: ""  ## 正常留空；排障才填 "deepseek"、"minimax"、"sensenova"、"xiaomi-token-plan"
+      OPENCLAW_CHAT_API: ""  ## 正常留空；排障才填 "openai-completions"、"anthropic-messages"、"openai-responses"
 
     volumes:
-      - </volume1/docker/miloco>:/data  ## 容器数据路径，把<>内的路径，连同符号<>都替换掉，改为你的真实路径。右侧 :/data 不要改
+      - /volume1/docker/miloco:/data  ## 如果 Docker 共享目录不同，只改左侧路径；右侧 :/data 不要改

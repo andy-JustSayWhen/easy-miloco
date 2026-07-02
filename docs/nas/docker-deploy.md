@@ -9,10 +9,11 @@
 | 档位 | 条件 | 结果 |
 | --- | --- | --- |
 | 基础一键 | 粘贴 YAML 或运行 `./manage.sh start` | 拉取在线镜像、自动创建容器、从镜像内置载荷安装 Miloco/OpenClaw、启动基础服务 |
-| 完整一键 | `.env` 已有 `MILOCO_ACCOUNT_AUTH`、`OMNI_API_KEY`、`OMNI_BASE_URL`、`OMNI_MODEL` | 自动完成账号、模型、插件、服务启动和基础验收 |
+| 模型一键 | YAML 或 `.env` 已有 `OMNI_API_KEY`、`OMNI_BASE_URL`、`OMNI_MODEL` 和 OpenClaw 聊天模型三项 | 自动写入模型配置、启动插件和基础服务 |
 
 YAML 不能公开内置小米账号授权和模型 API Key；这些只能由用户或 Agent 写入本机 `.env`。
 模型配置和账号授权是两条独立链路：只填 `OMNI_API_KEY` / `OMNI_BASE_URL` / `OMNI_MODEL` 时，Miloco 面板也应显示模型已配置；缺小米账号授权只影响米家绑定和 FULL_READY。
+公开的一键 YAML 不放 `MILOCO_ACCOUNT_AUTH`。首次部署前用户拿不到授权 payload，应先启动镜像，再进入 Miloco 面板绑定小米账号；只有 Agent 已经拿到授权 payload 的维护场景才写入 `.env`。
 
 OpenClaw 聊天模型必须单独填写，不会复用上面的 `OMNI_MODEL` / `OMNI_BASE_URL` / `OMNI_API_KEY`：
 
