@@ -9,6 +9,7 @@ and independently testable before wiring it into the camera collector.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from fractions import Fraction
 from io import BytesIO
@@ -17,6 +18,7 @@ from typing import Literal
 import av
 
 EncodedVideoCodec = Literal["h264", "h265"]
+logger = logging.getLogger(__name__)
 
 _H264_IDR_NAL_TYPE = 5
 _H265_RANDOM_ACCESS_NAL_TYPES = frozenset(range(16, 22))
@@ -184,6 +186,12 @@ def remux_encoded_video_to_mp4(
     codec = packets[0].codec
     if any(p.codec != codec or not p.data for p in packets):
         return None
+    if codec == "h265":
+        logger.info(
+            "event=encoded_video_remux_skip codec=h265 packets=%d reason=omni_empty_answer_risk",
+            len(packets),
+        )
+        return None
 
     input_format = "h264" if codec == "h264" else "hevc"
     raw_bytes = BytesIO(b"".join(packet.data for packet in packets))
@@ -208,12 +216,13 @@ def remux_encoded_video_to_mp4(
         out_stream.time_base = time_base
 
         idx = 0
+        last_pts_ms = -1
         for packet in in_container.demux(in_stream):
             if packet.size <= 0:
                 continue
             source_packet = packets[min(idx, len(packets) - 1)]
             next_packet = packets[idx + 1] if idx + 1 < len(packets) else None
-            pts_ms = max(0, source_packet.wall_ms - start_ms)
+            pts_ms = max(last_pts_ms + 1, source_packet.wall_ms - start_ms, 0)
             duration_ms = (
                 max(1, next_packet.wall_ms - source_packet.wall_ms)
                 if next_packet is not None and next_packet.wall_ms > source_packet.wall_ms
@@ -225,6 +234,7 @@ def remux_encoded_video_to_mp4(
             packet.duration = duration_ms
             packet.time_base = time_base
             out_container.mux(packet)
+            last_pts_ms = pts_ms
             idx += 1
         if idx == 0:
             return None
@@ -232,7 +242,17 @@ def remux_encoded_video_to_mp4(
         out_container.close()
         out_container = None
         return mp4_bytes.getvalue() or None
-    except Exception:
+    except Exception as e:
+        duration_ms = max(0, packets[-1].wall_ms - packets[0].wall_ms)
+        logger.info(
+            "event=encoded_video_remux_error codec=%s packets=%d duration_ms=%d "
+            "error=%s msg=%s",
+            codec,
+            len(packets),
+            duration_ms,
+            e.__class__.__name__,
+            str(e)[:160],
+        )
         return None
     finally:
         if out_container is not None:

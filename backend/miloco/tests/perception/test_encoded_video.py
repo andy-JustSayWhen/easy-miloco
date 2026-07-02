@@ -191,3 +191,66 @@ def test_remux_encoded_video_to_mp4_rejects_non_keyframe_start():
     packets = [_pkt(1_000), _pkt(1_500)]
 
     assert remux_encoded_video_to_mp4(packets, fps=2) is None
+
+
+def test_remux_encoded_video_to_mp4_skips_h265_until_omni_compatibility_is_known():
+    packets = [
+        _pkt(1_000, keyframe=True, codec="h265"),
+        _pkt(1_500, codec="h265"),
+    ]
+
+    assert remux_encoded_video_to_mp4(packets, fps=2) is None
+
+
+def test_remux_encoded_video_to_mp4_handles_duplicate_wall_ms(tmp_path):
+    import av
+    import numpy as np
+
+    raw_path = tmp_path / "source-duplicate-wall.h264"
+    out = av.open(str(raw_path), "w", format="h264")
+    stream = out.add_stream("libx264", rate=4)
+    stream.width = 64
+    stream.height = 64
+    stream.pix_fmt = "yuv420p"
+    stream.options = {"preset": "ultrafast", "tune": "zerolatency"}
+
+    packets: list[EncodedVideoPacket] = []
+    for idx in range(4):
+        frame_data = np.zeros((64, 64, 3), dtype=np.uint8)
+        frame_data[:, :, 1] = idx * 40
+        frame = av.VideoFrame.from_ndarray(frame_data, format="bgr24")
+        for packet in stream.encode(frame):
+            packets.append(
+                EncodedVideoPacket(
+                    codec="h264",
+                    data=bytes(packet),
+                    stream_ts=idx * 250,
+                    wall_ms=1_000,
+                    sequence=len(packets),
+                    is_keyframe=bool(packet.is_keyframe),
+                )
+            )
+            out.mux(packet)
+    for packet in stream.encode():
+        packets.append(
+            EncodedVideoPacket(
+                codec="h264",
+                data=bytes(packet),
+                stream_ts=len(packets) * 250,
+                wall_ms=1_000,
+                sequence=len(packets),
+                is_keyframe=bool(packet.is_keyframe),
+            )
+        )
+        out.mux(packet)
+    out.close()
+
+    assert packets[0].is_keyframe
+
+    mp4_bytes = remux_encoded_video_to_mp4(packets, fps=4)
+
+    assert mp4_bytes is not None
+    mp4_path = tmp_path / "duplicate-wall-remuxed.mp4"
+    mp4_path.write_bytes(mp4_bytes)
+    decoded = list(av.open(str(mp4_path)).decode(video=0))
+    assert len(decoded) == 4
