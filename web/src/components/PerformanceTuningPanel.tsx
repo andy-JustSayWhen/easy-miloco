@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   applyPerformanceConfig,
+  applyPerformanceSafeMode,
   diagnosePerformance,
   getPerformanceBudget,
   listScopeCameras,
@@ -531,6 +532,35 @@ export function PerformanceTuningPanel({
     }
   };
 
+  const applySafeMode = async () => {
+    setApplying(true);
+    setMessage("正在应用低配安全模式：保守参数、最多 1 路实时摄像头，并准备重启后端。");
+    try {
+      const result = await applyPerformanceSafeMode();
+      const disabled = result.camera_action.disabled_count ?? 0;
+      setRestartWaiting(true);
+      setPollAttempt(0);
+      setMessage(
+        disabled > 0
+          ? `低配安全模式已写入，并停用 ${disabled} 路实时摄像头。后端正在重启。`
+          : "低配安全模式已写入。后端正在重启。",
+      );
+      await waitForBackendReady(setPollAttempt);
+      setRestartWaiting(false);
+      setMessage("低配安全模式已生效，正在刷新性能数据。");
+      setDiagnosis(null);
+      setUserTouchedDraft(false);
+      configState.reload();
+      budgetState.reload();
+      onReady();
+    } catch (e) {
+      setRestartWaiting(false);
+      setMessage(e instanceof Error ? e.message : String(e));
+    } finally {
+      setApplying(false);
+    }
+  };
+
   const budget = budgetState.data;
   const noviceText = noviceDiagnosisText(diagnosis, budget, pendingCount);
 
@@ -626,9 +656,17 @@ export function PerformanceTuningPanel({
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={reduceRealtimeCameras}
+              onClick={applySafeMode}
               disabled={hardActionRunning || applying || restartWaiting}
               className="px-3 py-1.5 rounded-md bg-brand-primary text-white disabled:opacity-50 transition-colors"
+            >
+              一键低配安全模式
+            </button>
+            <button
+              type="button"
+              onClick={reduceRealtimeCameras}
+              disabled={hardActionRunning || applying || restartWaiting}
+              className="px-3 py-1.5 rounded-md border border-border text-text-primary bg-bg-primary disabled:opacity-50 transition-colors"
             >
               只保留 1 路实时摄像头
             </button>

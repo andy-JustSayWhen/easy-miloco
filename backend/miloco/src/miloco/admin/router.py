@@ -22,7 +22,9 @@ from miloco.admin.backup_export import (
 )
 from miloco.admin.performance_tuning import (
     PerformanceConfigApplyBody,
+    PerformanceSafeModeBody,
     apply_performance_config,
+    apply_performance_safe_mode,
     build_performance_budget_payload,
     build_performance_config_payload,
     run_performance_diagnosis,
@@ -208,6 +210,20 @@ def post_performance_config_apply(
     body: PerformanceConfigApplyBody, current_user: str = Depends(verify_token)
 ):
     result = apply_performance_config(body.values)
+    return NormalResponse(code=0, message="ok", data=result)
+
+
+@router.post(
+    "/performance-safe-mode",
+    summary="应用低配安全模式并重启后端",
+    response_model=NormalResponse,
+)
+async def post_performance_safe_mode(
+    body: PerformanceSafeModeBody, current_user: str = Depends(verify_token)
+):
+    result = await apply_performance_safe_mode(
+        limit_realtime_cameras=body.limit_realtime_cameras
+    )
     return NormalResponse(code=0, message="ok", data=result)
 
 

@@ -30,6 +30,7 @@ import type {
   PerformanceConfigState,
   PerformanceDiagnosis,
   PerformanceParamValue,
+  PerformanceSafeModeResult,
   PerformanceReportDetail,
   PerformanceReportMeta,
   PerfOmniErrorPoint,
@@ -574,6 +575,17 @@ export async function applyPerformanceConfig(
   const body = await apiFetch<Normal<PerformanceApplyResult>>(
     "/api/admin/performance-config/apply",
     { method: "POST", body: JSON.stringify({ values }) },
+  );
+  return body.data;
+}
+
+export async function applyPerformanceSafeMode(): Promise<PerformanceSafeModeResult> {
+  const body = await apiFetch<Normal<PerformanceSafeModeResult>>(
+    "/api/admin/performance-safe-mode",
+    {
+      method: "POST",
+      body: JSON.stringify({ limit_realtime_cameras: true }),
+    },
   );
   return body.data;
 }

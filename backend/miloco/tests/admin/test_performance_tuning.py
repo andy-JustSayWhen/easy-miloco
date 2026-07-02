@@ -219,3 +219,47 @@ def test_apply_fails_before_write_when_restart_unavailable(tmp_path, monkeypatch
 
     assert exc.value.status_code == 503
     assert not (tmp_path / "config.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_safe_mode_applies_low_power_config_and_schedules_restart(
+    tmp_path, monkeypatch
+):
+    scheduled = []
+    monkeypatch.setattr(pt, "_restart_command", lambda: ("test", True))
+    monkeypatch.setattr(
+        pt,
+        "schedule_backend_restart",
+        lambda: scheduled.append(True) or {"scheduled": True, "command": "test"},
+    )
+
+    async def fake_limit_cameras():
+        return {"ok": True, "changed": True, "disabled_count": 2}
+
+    monkeypatch.setattr(pt, "_limit_enabled_cameras_to_one", fake_limit_cameras)
+
+    result = await pt.apply_performance_safe_mode()
+
+    data = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+    assert data["camera"]["frame_interval"] == 5000
+    assert data["camera"]["max_cache_images"] == 2
+    assert data["perception"]["collect"]["window_size"] == 60
+    assert data["perception"]["engine"]["input"]["period_sec"] == 60
+    assert data["perception"]["engine"]["gate"]["hold_duration_sec"] == 0
+    assert data["perception"]["engine"]["identity_engine"]["enabled"] is False
+    assert result["preset"] == "nas_safe_mode"
+    assert result["camera_action"]["disabled_count"] == 2
+    assert scheduled == [True]
+
+
+@pytest.mark.asyncio
+async def test_safe_mode_fails_before_write_when_restart_unavailable(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(pt, "_restart_command", lambda: None)
+
+    with pytest.raises(HTTPException) as exc:
+        await pt.apply_performance_safe_mode()
+
+    assert exc.value.status_code == 503
+    assert not (tmp_path / "config.json").exists()

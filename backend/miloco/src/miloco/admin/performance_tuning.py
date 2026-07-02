@@ -40,6 +40,10 @@ class PerformanceConfigApplyBody(BaseModel):
     values: dict[str, ConfigValue] = Field(default_factory=dict)
 
 
+class PerformanceSafeModeBody(BaseModel):
+    limit_realtime_cameras: bool = True
+
+
 @dataclass(frozen=True)
 class ConfigSpec:
     path: str
@@ -256,6 +260,23 @@ REQUIRED_DIAGNOSIS_KEYS = {
 }
 
 DEFAULT_MAX_ENABLED_CAMERAS = 4
+
+LOW_POWER_SAFE_MODE_VALUES: dict[str, ConfigValue] = {
+    "camera.frame_interval": 5000,
+    "camera.max_cache_images": 2,
+    "perception.collect.window_size": 60,
+    "perception.collect.max_windows": 1,
+    "perception.collect.full_action": "clear",
+    "perception.engine.input.fps": 1,
+    "perception.engine.input.omni_fps": 1,
+    "perception.engine.input.period_sec": 60,
+    "perception.engine.gate.hold_duration_sec": 0,
+    "perception.engine.identity.tracking_service_mode": "mock",
+    "perception.engine.identity_engine.enabled": False,
+    "perception.engine.identity_engine.deep_sort.mode": "fast",
+    "perception.engine.identity_engine.deep_sort.human_reid_skip_windows": 20,
+    "perception.snapshot_max_disk_mb": 256,
+}
 
 
 def _settings_dict() -> dict[str, Any]:
@@ -744,6 +765,83 @@ def apply_performance_config(values: dict[str, Any]) -> dict[str, Any]:
     restart = schedule_backend_restart()
     return {
         "applied": validated,
+        "backend_restart_required": True,
+        "backend_restart_triggered": True,
+        "restart": restart,
+    }
+
+
+async def _limit_enabled_cameras_to_one() -> dict[str, Any]:
+    try:
+        from miloco.manager import get_manager
+
+        manager = get_manager()
+        miot_service = getattr(manager, "miot_service", None)
+        if miot_service is None:
+            return {"ok": False, "reason": "miot_service_unavailable"}
+        cameras = await miot_service.list_cameras_with_state()
+        enabled = [cam for cam in cameras if cam.get("in_use")]
+        if len(enabled) <= 1:
+            return {
+                "ok": True,
+                "changed": False,
+                "enabled_camera_count": len(enabled),
+                "disabled_count": 0,
+            }
+        keep = (
+            next((cam for cam in enabled if cam.get("connected")), None)
+            or next((cam for cam in enabled if cam.get("is_online")), None)
+            or enabled[0]
+        )
+        keep_did = keep.get("did")
+        disable_dids = [cam.get("did") for cam in enabled if cam.get("did") != keep_did]
+        disable_dids = [did for did in disable_dids if isinstance(did, str) and did]
+        if disable_dids:
+            await miot_service.toggle_camera(
+                [{"did": did, "in_use": False} for did in disable_dids]
+            )
+        return {
+            "ok": True,
+            "changed": bool(disable_dids),
+            "enabled_camera_count": len(enabled),
+            "disabled_count": len(disable_dids),
+            "kept_camera": {
+                "did": keep_did,
+                "name": keep.get("name"),
+                "room_name": keep.get("room_name"),
+            },
+        }
+    except Exception as e:
+        logger.warning("safe mode camera limiting failed: %s", e)
+        return {"ok": False, "reason": str(e)}
+
+
+async def apply_performance_safe_mode(
+    *, limit_realtime_cameras: bool = True
+) -> dict[str, Any]:
+    if _restart_command() is None:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Backend restart command unavailable; set "
+                "MILOCO_BACKEND_RESTART_COMMAND or install miloco-cli"
+            ),
+        )
+    camera_action = (
+        await _limit_enabled_cameras_to_one()
+        if limit_realtime_cameras
+        else {"ok": True, "skipped": True}
+    )
+    validated = _validate_values(LOW_POWER_SAFE_MODE_VALUES)
+    nested: dict[str, Any] = {}
+    for path, value in validated.items():
+        _set_path(nested, path, value)
+    update_shared_config(**nested)
+    restart = schedule_backend_restart()
+    return {
+        "preset": "nas_safe_mode",
+        "applied": validated,
+        "camera_action": camera_action,
         "backend_restart_required": True,
         "backend_restart_triggered": True,
         "restart": restart,

@@ -645,6 +645,23 @@ export interface PerformanceApplyResult {
   restart?: { scheduled: boolean; command: string };
 }
 
+export interface PerformanceSafeModeResult extends PerformanceApplyResult {
+  preset: "nas_safe_mode";
+  camera_action: {
+    ok: boolean;
+    changed?: boolean;
+    skipped?: boolean;
+    reason?: string;
+    enabled_camera_count?: number;
+    disabled_count?: number;
+    kept_camera?: {
+      did?: string;
+      name?: string;
+      room_name?: string;
+    };
+  };
+}
+
 // === Monitor meta (/monitor/) ===
 
 export interface MonitorMeta {
