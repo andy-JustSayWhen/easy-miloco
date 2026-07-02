@@ -7,6 +7,8 @@
 
 ## 一键部署
 
+[视频教程](https://www.bilibili.com/video/BV1JaTc6dEaW/)
+
 ### Agent 全自动
 
 省心，适合不想自己处理 WSL、依赖、日志的人；缺点是会慢一点，也会多消耗一些 Token。
