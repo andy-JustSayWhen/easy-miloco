@@ -237,7 +237,7 @@ class TestMemoryCollect:
         first_rss = rm._memory_latest.total_rss_kb
         with (
             patch(
-                "miloco.node_monitor.resource_monitor.parse_smaps",
+                "miloco.node_monitor.resource_monitor._sample_mem",
                 side_effect=OSError("boom"),
             ),
             patch(

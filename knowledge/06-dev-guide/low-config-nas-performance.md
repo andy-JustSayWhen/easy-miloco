@@ -69,7 +69,7 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
    实时推理只处理最新窗口；主动查询也只需要最近窗口。已处理旧窗口应释放，只保留最新窗口给非破坏性读取，避免解码帧在内存里无限累积。
 
 4. 编码路径复用  
-   保持“Omni 看到的视频字节就是事件回放视频字节”的原则，避免上传后又为事件回放重复编码。
+   保持“Omni 看到的视频字节就是事件回放视频字节”的原则，避免上传后又为事件回放重复编码。下一步进一步复用摄像头原始 H.264/H.265 压缩包，优先走 remux（重封装，只换容器、不重新压缩画面），失败再回退到 BGR 重新编码。
 
 5. 可观测性先于大改  
    性能页需要把 CPU 饼图和阶段柱状图做成小白可读：谁在吃 CPU、吃的是拉流/解码/Gate/身份/Omni 哪一段，必须直接显示。
@@ -78,6 +78,7 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 
 - GStreamer 硬件解码（多媒体流水线，可自动或显式使用硬件解码器），适合 NAS 平台驱动可用时验证。
 - FFmpeg 硬件解码（视频工具链，可接 VAAPI/QSV/NVDEC 等硬件后端），适合独立基准测试后替换解码层。
+- FFmpeg/PyAV streamcopy/remux（流拷贝/重封装），官方语义是不解码、不滤镜、不编码，适合把摄像头原始 H.264/H.265 包直接封装成 Omni 可上传的 MP4；限制是必须拿到时间戳、codec 参数，并从 I 帧开始切片。
 - FFmpeg motion vectors（运动向量，压缩视频里已有的块运动信息），可用于减少像素级帧差，但需要拿到原始压缩包，当前 SDK 回调只给解码帧，属于实验方向。
 - OpenCV 流式帧差（当前使用的本地图片算法），优先做内存和临时对象优化。
 
@@ -136,6 +137,7 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 | 第一轮-CPU | `MIoTMediaDecoder` 对 BGR 帧回调也应用 `frame_interval`；仍解码每个 H.264/H.265 包以保持参考帧有效，只跳过间隔内的 BGR 转换和下游感知 | `pytest backend/miot/tests/test_units.py backend/miloco/tests/perception/test_camera_adapter_decode_latency.py backend/miloco/tests/perception/test_latency_rtf.py backend/miloco/tests/perception/test_stream_buffer_overflow.py backend/miloco/tests/perception/engine/gate/test_visual_gate.py -q`：91 passed；ruff 通过 | 5000ms 验证：新窗口降到 12 帧/60s，稳定期 CPU 峰值 115.6%；1000ms 默认质量复验：新窗口 52-58 帧/60s，运行期 CPU 约 200.2-210.8%，仍擦线超预算 | 证明节流修复有效，但默认质量下还需要继续压非跳过窗口和 Omni 上传前编码峰值 |
 | 第一轮-CPU | Omni 上传 mp4 编码使用 `ultrafast/zerolatency` H.264 参数；不改上传帧数、分辨率、内容，只降低编码器计算量 | `pytest backend/miloco/tests/perception/engine/omni/test_prompt_builder.py backend/miloco/tests/perception/engine/test_pipeline.py backend/miot/tests/test_units.py ... -q`：243 passed；ruff 通过；本地 `_encode_video_mp4` 可生成 payload | NAS 默认 1000ms 复验：热补丁后非跳过 Omni 窗口 CPU 约 173-176%，跳过窗口稳定期 CPU 峰值 164.0%，RSS 峰值 809.3MB（稳定跳过期 689.1MB）；窗口 52-58 帧/60s | 单路桌面摄像头默认采样质量下，运行期 CPU/RAM 已低于预算；启动后旧窗口/启动期仍可出现 300%+ 尖峰，需要单独处理或在验收口径中排除启动阶段 |
 | 第一轮-观测 | 资源监控延后并降频采集内存明细；运行期每分钟仍更新 CPU/RSS，重型 `smaps`/Python heap 明细默认 120 秒后开始、300 秒一次 | `pytest backend/miloco/tests/node_monitor/test_resource_monitor.py -q`：19 passed；`ruff check backend/miloco/src/miloco/node_monitor/resource_monitor.py backend/miloco/tests/node_monitor/test_resource_monitor.py` 通过 | NAS 默认 1000ms、一路桌面摄像头、7 分钟只读采样：CPU 峰值 172.4%（4 核宿主约 43.1%），平均 166.2%；RSS 峰值 694.0MB；覆盖 8 个 trace，其中 1 个 Omni 窗口 `omni_ms=33492.9` | 运行期观测链路不再制造明显超预算尖峰；单路默认质量在含 Omni 调用窗口下仍低于 CPU/RAM 50% 预算 |
+| 第一轮-码流复用准备 | 新增原始压缩视频包的 I 帧对齐切片模块；后续 remux 必须从 I 帧开始，否则 P 帧缺少参考画面可能无法解码 | `pytest backend/miloco/tests/perception/test_encoded_video.py -q`：4 passed；`ruff check backend/miloco/src/miloco/perception/encoded_video.py backend/miloco/tests/perception/test_encoded_video.py` 通过 | 待接入 raw_video 旁路后上 NAS 复验 | 为减少 Omni 上传前 BGR → MP4 重新编码做前置保障；当前只是可测试基础件，尚未改变运行期资源 |
 
 ## 当前结论（2026-07-03 NAS 实测）
 
