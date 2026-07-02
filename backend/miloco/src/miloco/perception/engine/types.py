@@ -222,6 +222,21 @@ class AudioAnalysis:
 
 
 @dataclass
+class OmniVideoEncodeStats:
+    """Runtime stats for the video payload handed to Omni.
+
+    Values are intentionally numeric so they can be copied into existing
+    timing_detail JSON without changing the observability DB schema.
+    """
+
+    remux_success: int = 0
+    remux_fallback: int = 0
+    reencode: int = 0
+    input_packets: int = 0
+    output_bytes: int = 0
+
+
+@dataclass
 class IdentityPacket:
     packet_id: str
     room_name: str
@@ -236,6 +251,7 @@ class IdentityPacket:
     sample_rate: int = 16000
     trigger: GateTrigger | None = None  # 透传自 GatePacket，下游分流 audio-only 路径用
     encoded_video: list[EncodedVideoPacket] = field(default_factory=list)
+    video_encode_stats: OmniVideoEncodeStats | None = None
 
 
 # =============================================================================

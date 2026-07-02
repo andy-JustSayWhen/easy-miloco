@@ -17,6 +17,7 @@ from miloco.perception.engine.input.video_splitter import create_input_slice
 from miloco.perception.engine.pipeline import (
     _downsample_for_omni,
     _inject_source_meta,
+    _record_omni_video_encode_stats,
     _wrap_matched_rules_cb,
     _wrap_suggestions_cb,
     downsample_snapshot,
@@ -34,6 +35,7 @@ from miloco.perception.engine.types import (
     IdentityPacket,
     MotionState,
     OmniContext,
+    OmniVideoEncodeStats,
     RoomPipelineResult,
     RuleCondition,
     SelectedFrame,
@@ -714,6 +716,26 @@ def test_downsample_for_omni_noop_when_not_needed():
     pkt = _make_omni_packet(5)
     assert _downsample_for_omni(pkt, src_fps=3, omni_fps=3) is pkt  # omni>=src
     assert _downsample_for_omni(pkt, src_fps=1, omni_fps=1) is pkt  # step<=1
+
+
+def test_record_omni_video_encode_stats_uses_numeric_trace_fields():
+    pkt = _make_omni_packet(5)
+    pkt.video_encode_stats = OmniVideoEncodeStats(
+        remux_success=1,
+        input_packets=900,
+        output_bytes=123456,
+    )
+    timing: dict[str, object] = {}
+
+    _record_omni_video_encode_stats(timing, pkt, prefix="omni_video_cam1_")
+
+    assert timing == {
+        "omni_video_cam1_remux_success": 1.0,
+        "omni_video_cam1_remux_fallback": 0.0,
+        "omni_video_cam1_reencode": 0.0,
+        "omni_video_cam1_input_packets": 900.0,
+        "omni_video_cam1_output_bytes": 123456.0,
+    }
 
 
 def _make_high_fps_snapshot(

@@ -109,6 +109,22 @@ def _ms_since(start: float) -> float:
     return (time.monotonic() - start) * 1000
 
 
+def _record_omni_video_encode_stats(
+    timing: dict[str, Any],
+    packet: IdentityPacket,
+    *,
+    prefix: str,
+) -> None:
+    stats = getattr(packet, "video_encode_stats", None)
+    if stats is None:
+        return
+    timing[f"{prefix}remux_success"] = float(stats.remux_success)
+    timing[f"{prefix}remux_fallback"] = float(stats.remux_fallback)
+    timing[f"{prefix}reencode"] = float(stats.reencode)
+    timing[f"{prefix}input_packets"] = float(stats.input_packets)
+    timing[f"{prefix}output_bytes"] = float(stats.output_bytes)
+
+
 def _reraise_first(results: list[Any]) -> None:
     """``gather(return_exceptions=True)`` 后按输入顺序复抛第一个异常（保留原对象，
     OmniError 的 ``partial_timing`` 随之上抛），与串行"首个出错即整轮失败"语义一致。"""
@@ -352,6 +368,11 @@ async def run_pipeline(
     else:
         omni_output = await run_omni(omni_packet, context, omni_cfg)
     timing["omni_ms"] = _ms_since(t)
+    _record_omni_video_encode_stats(
+        timing,
+        omni_packet,
+        prefix="omni_video_",
+    )
 
     _inject_source_meta(omni_output, room_name, source_device_ids, device_name, time_window)
 
@@ -622,6 +643,11 @@ async def run_batch_pipeline(
                     [omni_packet], context, omni_cfg,
                 )
             room_timing[f"omni_{did}_ms"] = _ms_since(t)
+            _record_omni_video_encode_stats(
+                room_timing,
+                omni_packet,
+                prefix=f"omni_video_{did}_",
+            )
         except OmniError as omni_err:
             # partial 结果:单设备 omni 失败(超时/429/模型错)→ 记 omni_ms + 失败标记 + log,
             # **不连累整窗**——返回 skipped(omni_output=None;_merge_results line855 会跳过该设备),

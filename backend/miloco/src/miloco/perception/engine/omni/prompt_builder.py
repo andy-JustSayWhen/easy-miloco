@@ -33,7 +33,12 @@ from miloco.perception.engine.identity.gallery_composite import (
     encode_png_bytes,
     hstack_to_height,
 )
-from miloco.perception.engine.types import IdentityPacket, IdentityTarget, OmniContext
+from miloco.perception.engine.types import (
+    IdentityPacket,
+    IdentityTarget,
+    OmniContext,
+    OmniVideoEncodeStats,
+)
 
 from .constants import (
     _COMMONSENSE,
@@ -1125,6 +1130,7 @@ def _encode_video(identity_packet: IdentityPacket) -> str | None:
     """
     frames = identity_packet.all_frames
     if not frames:
+        identity_packet.video_encode_stats = None
         return None
 
     # audio gate 没通过(audio_active=False)就不把音频喂进 mp4：办公底噪等被持续转写会让
@@ -1140,6 +1146,11 @@ def _encode_video(identity_packet: IdentityPacket) -> str | None:
             fps=identity_packet.frame_info.fps,
         )
         if mp4_bytes:
+            identity_packet.video_encode_stats = OmniVideoEncodeStats(
+                remux_success=1,
+                input_packets=len(identity_packet.encoded_video),
+                output_bytes=len(mp4_bytes),
+            )
             logger.info(
                 "event=omni_video_remux_success packets=%d bytes=%d fps=%d",
                 len(identity_packet.encoded_video),
@@ -1150,18 +1161,29 @@ def _encode_video(identity_packet: IdentityPacket) -> str | None:
 
             push_clip_bytes(mp4_bytes, "mp4")
             return base64.b64encode(mp4_bytes).decode()
+        identity_packet.video_encode_stats = OmniVideoEncodeStats(
+            remux_fallback=1,
+            input_packets=len(identity_packet.encoded_video),
+        )
         logger.info(
             "event=omni_video_remux_fallback packets=%d fps=%d",
             len(identity_packet.encoded_video),
             identity_packet.frame_info.fps,
         )
 
-    return _encode_video_mp4(
+    encoded = _encode_video_mp4(
         frames,
         audio,
         identity_packet.sample_rate,
         fps=identity_packet.frame_info.fps,
     )
+    if encoded:
+        if identity_packet.video_encode_stats is None:
+            identity_packet.video_encode_stats = OmniVideoEncodeStats(reencode=1)
+        else:
+            identity_packet.video_encode_stats.reencode = 1
+        identity_packet.video_encode_stats.output_bytes = int(len(encoded) * 3 / 4)
+    return encoded
 
 
 def _encode_video_mp4(

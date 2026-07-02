@@ -163,6 +163,12 @@ class TestBuildPrompt:
         remux.assert_called_once_with(ep.encoded_video, fps=ep.frame_info.fps)
         encode_mp4.assert_not_called()
         assert encoded == base64.b64encode(b"mp4-bytes").decode()
+        assert ep.video_encode_stats is not None
+        assert ep.video_encode_stats.remux_success == 1
+        assert ep.video_encode_stats.remux_fallback == 0
+        assert ep.video_encode_stats.reencode == 0
+        assert ep.video_encode_stats.input_packets == 1
+        assert ep.video_encode_stats.output_bytes == len(b"mp4-bytes")
 
     def test_encode_video_falls_back_when_remux_fails(self):
         ep = _mock_edge_packet()
@@ -196,6 +202,27 @@ class TestBuildPrompt:
 
         encode_mp4.assert_called_once()
         assert encoded == "fallback"
+        assert ep.video_encode_stats is not None
+        assert ep.video_encode_stats.remux_success == 0
+        assert ep.video_encode_stats.remux_fallback == 1
+        assert ep.video_encode_stats.reencode == 1
+        assert ep.video_encode_stats.input_packets == 1
+
+    def test_encode_video_records_reencode_when_no_raw_packets(self):
+        ep = _mock_edge_packet()
+
+        with patch(
+            "miloco.perception.engine.omni.prompt_builder._encode_video_mp4",
+            return_value=base64.b64encode(b"encoded-mp4").decode(),
+        ):
+            encoded = _encode_video(ep)
+
+        assert encoded == base64.b64encode(b"encoded-mp4").decode()
+        assert ep.video_encode_stats is not None
+        assert ep.video_encode_stats.remux_success == 0
+        assert ep.video_encode_stats.remux_fallback == 0
+        assert ep.video_encode_stats.reencode == 1
+        assert ep.video_encode_stats.input_packets == 0
 
     def test_system_prompt_includes_schema(self):
         """Realtime 路径 system prompt 包含 JSON schema。"""
