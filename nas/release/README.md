@@ -5,7 +5,6 @@
 ## 文件
 
 - `compose.ugreen.yaml`：在线部署 YAML，优先用于绿联云 NAS。
-- `compose.ugreen-offline.yaml`：离线包才会有，配合镜像 tar 使用。
 - `AGENT.md`：给 AI Agent 的 SSH 自动部署说明。
 
 ## 手动部署

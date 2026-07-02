@@ -1,0 +1,46 @@
+name: Build NAS Release Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Image version tag, for example v0.5"
+        required: true
+        default: "v0.5"
+  push:
+    branches: [main, NAS]
+    paths:
+      - ".github/workflows/nas-release-package.yml"
+      - "nas/release/**"
+      - "nas/docker/compose.ugreen-template.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build release package
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          version="${{ inputs.version || 'v0.5' }}"
+          out="easy-miloco-nas-${version}"
+          mkdir -p "$out"
+
+          cp nas/release/README.md "$out/README.md"
+          cp nas/release/AGENT.md "$out/AGENT.md"
+          cp nas/docker/compose.ugreen-template.yaml "$out/compose.ugreen.yaml"
+
+          (cd "$out" && sha256sum * > SHA256SUMS.txt)
+          zip -r "${out}-package.zip" "$out"
+
+      - name: Upload release package
+        uses: actions/upload-artifact@v4
+        with:
+          name: easy-miloco-nas-${{ inputs.version || 'v0.5' }}-package
+          path: easy-miloco-nas-${{ inputs.version || 'v0.5' }}-package.zip
+          if-no-files-found: error
