@@ -246,7 +246,7 @@ def sum_timing_suffix(detail: dict[str, Any], suffix: str) -> float:
     return total
 
 
-def read_trace_summary(window_minutes: int) -> dict[str, Any]:
+def read_trace_summary(window_minutes: int, since_ts: int | None = None) -> dict[str, Any]:
     if window_minutes <= 0:
         return {"enabled": False}
     if not OBSERVABILITY_DB_PATH.exists():
@@ -269,7 +269,8 @@ def read_trace_summary(window_minutes: int) -> dict[str, Any]:
         if max_ts is None:
             return {"enabled": True, "present": True, "row_count": 0}
 
-        since = int(max_ts) - window_minutes * 60_000
+        window_since = int(max_ts) - window_minutes * 60_000
+        since = max(window_since, since_ts) if since_ts is not None else window_since
         rows = conn.execute(
             "SELECT * FROM traces WHERE timestamp >= ? ORDER BY timestamp",
             (since,),
@@ -333,6 +334,7 @@ def read_trace_summary(window_minutes: int) -> dict[str, Any]:
             "enabled": True,
             "present": True,
             "window_minutes": window_minutes,
+            "scope": "run" if since_ts is not None else "window",
             "since_ts": since,
             "until_ts": max_ts,
             "row_count": len(rows),
@@ -440,6 +442,12 @@ def parse_args() -> argparse.Namespace:
         help="Minutes of observability traces to summarize after sampling.",
     )
     parser.add_argument("--no-traces", action="store_true", help="Do not read observability.db trace summary.")
+    parser.add_argument(
+        "--trace-scope",
+        choices=("run", "window"),
+        default="run",
+        help="Use traces since this probe started, or the whole trace window.",
+    )
     return parser.parse_args()
 
 
@@ -470,6 +478,7 @@ def main() -> int:
     signal.signal(signal.SIGINT, request_stop)
 
     started_at = int(time.time())
+    started_at_ms = started_at * 1000
     before_config = config_snapshot(load_config())
     restored = False
     try:
@@ -486,7 +495,10 @@ def main() -> int:
 
         samples = sample_process(args.duration, args.interval)
         sampled_config = config_snapshot(load_config())
-        trace_summary = None if args.no_traces else read_trace_summary(args.trace_window_minutes)
+        trace_since = started_at_ms if args.trace_scope == "run" else None
+        trace_summary = (
+            None if args.no_traces else read_trace_summary(args.trace_window_minutes, since_ts=trace_since)
+        )
         if restore_needed and backup_path and backup_path.exists():
             restore_backup(backup_path, args.health_timeout)
             backup_path = None

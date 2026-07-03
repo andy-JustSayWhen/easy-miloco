@@ -9,10 +9,13 @@ def test_default_num_threads_adapts_to_low_core_hosts(monkeypatch):
     monkeypatch.delenv("MILOCO_ORT_NUM_THREADS", raising=False)
 
     monkeypatch.setattr(ort_utils.os, "cpu_count", lambda: 4)
-    assert ort_utils._default_num_threads() == 2
+    assert ort_utils._default_num_threads() == 1
 
     monkeypatch.setattr(ort_utils.os, "cpu_count", lambda: 2)
     assert ort_utils._default_num_threads() == 1
+
+    monkeypatch.setattr(ort_utils.os, "cpu_count", lambda: 6)
+    assert ort_utils._default_num_threads() == 2
 
 
 def test_default_num_threads_env_override(monkeypatch):
@@ -50,6 +53,6 @@ def test_make_session_uses_single_inter_op_thread(monkeypatch):
     ort_utils.make_session("/models/det.onnx")
 
     opts = captured["sess_options"]
-    assert opts.intra_op_num_threads == 2
+    assert opts.intra_op_num_threads == 1
     assert opts.inter_op_num_threads == 1
     assert captured["providers"] == ["CPUExecutionProvider"]

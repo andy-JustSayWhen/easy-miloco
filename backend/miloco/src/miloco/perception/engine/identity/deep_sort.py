@@ -62,6 +62,7 @@ class DeepSortTracker:
         detector,
         config: "DeepSortConfigDC | None" = None,
         fps: int = 1,
+        window_len_sec: float | None = None,
         reid_model_path: str | None = None,
         use_gpu: bool = False,
     ) -> None:
@@ -93,6 +94,8 @@ class DeepSortTracker:
             human_init_confidence=self.config.detector_conf_threshold,
             human_max_lost_frames=max_age_frames,
             human_reid_skip_windows=self.config.human_reid_skip_windows,
+            window_len_sec=max(1.0, float(window_len_sec or 1.0)),
+            window_fps=self.fps,
         )
 
         self._mot = MultiObjectTracker(

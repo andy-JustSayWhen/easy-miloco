@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 
 BOOT_FROM = None
+_ENV_OPENCV_THREADS = "MILOCO_OPENCV_NUM_THREADS"
+_ENV_CPU_AFFINITY_CORES = "MILOCO_CPU_AFFINITY_CORES"
 
 
 def _redirect_stdio_to_file(log_path: str) -> None:
@@ -36,6 +38,65 @@ def _redirect_stdio_to_file(log_path: str) -> None:
     sys.stderr = os.fdopen(2, "w", buffering=1)
 
 
+def _default_native_threads() -> int:
+    raw = os.getenv(_ENV_OPENCV_THREADS)
+    if raw:
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            logger.warning("Invalid %s=%r; using adaptive default", _ENV_OPENCV_THREADS, raw)
+
+    cores = os.cpu_count() or 4
+    if cores <= 4:
+        return 1
+    if cores <= 6:
+        return 2
+    return 4
+
+
+def _configure_native_thread_limits() -> None:
+    """Cap native image-processing thread pools on low-core hosts."""
+    threads = _default_native_threads()
+    try:
+        import cv2  # type: ignore[import-untyped]
+
+        cv2.setNumThreads(threads)
+        logger.info("OpenCV native threads=%s", threads)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("OpenCV thread limit not applied: %s", exc)
+
+
+def _resolve_cpu_affinity_budget(available_count: int) -> int | None:
+    raw = os.getenv(_ENV_CPU_AFFINITY_CORES)
+    if raw is not None:
+        if raw.strip().lower() in {"", "0", "off", "false", "none"}:
+            return None
+        try:
+            return max(1, min(available_count, int(raw)))
+        except ValueError:
+            logger.warning("Invalid %s=%r; using adaptive CPU budget", _ENV_CPU_AFFINITY_CORES, raw)
+
+    if available_count <= 1:
+        return None
+    return max(1, available_count // 2)
+
+
+def _configure_cpu_affinity_budget(target: str) -> None:
+    """Limit server CPU affinity to the low-config host budget when possible."""
+    if target != "server" or not hasattr(os, "sched_getaffinity"):
+        return
+    try:
+        current = sorted(os.sched_getaffinity(0))
+        budget = _resolve_cpu_affinity_budget(len(current))
+        if budget is None or len(current) <= budget:
+            return
+        limited = set(current[:budget])
+        os.sched_setaffinity(0, limited)
+        logger.info("CPU affinity limited to %s/%s cores: %s", len(limited), len(current), sorted(limited))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("CPU affinity budget not applied: %s", exc)
+
+
 def bootstrap(target: str = "server", debug: bool = False) -> None:
     """Bootstrap: logging + shared token.
 
@@ -52,6 +113,8 @@ def bootstrap(target: str = "server", debug: bool = False) -> None:
     ensure_backend_token()
 
     settings = get_settings()
+    _configure_native_thread_limits()
+    _configure_cpu_affinity_budget(target)
 
     # Daemon mode (stdout not a tty) → redirect stdio to a per-boot file so
     # native C stderr (ORT warnings, etc.) is captured alongside Python logger

@@ -173,6 +173,7 @@ class DeepSortTrackingService(TrackingService):
         input_height: int = 720,
         deep_sort_config=None,
         fps: int = 1,
+        window_len_sec: float | None = None,
     ):
         from miloco.perception.engine.config import DeepSortConfigDC
         from miloco.perception.engine.identity.deep_sort import DeepSortTracker
@@ -194,6 +195,7 @@ class DeepSortTrackingService(TrackingService):
             detector=self._detector,
             config=cfg,
             fps=fps,
+            window_len_sec=window_len_sec,
             reid_model_path=reid_path,
             use_gpu=use_gpu,
         )

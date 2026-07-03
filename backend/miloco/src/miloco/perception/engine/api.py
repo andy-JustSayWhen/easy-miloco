@@ -115,6 +115,7 @@ class PerceptionEngine(BasePerceptionEngine):
                 self._tracking_service_kwargs = {
                     **common_kwargs,
                     "deep_sort_config": self._config.identity_engine.deep_sort,
+                    "window_len_sec": self._config.input.period_sec,
                 }
             else:  # real / fast / detect_only
                 self._tracking_service_kwargs = {

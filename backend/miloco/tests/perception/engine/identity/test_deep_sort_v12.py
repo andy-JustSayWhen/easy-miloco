@@ -117,6 +117,29 @@ class TestDeepSortConfigDC:
         ):
             assert required in field_names, f"DeepSortConfigDC 应保留 {required}"
 
+    def test_reid_skip_windows_uses_runtime_window_length(self, monkeypatch):
+        """human_reid_skip_windows 语义是 N 个窗口,不是固定 N 帧。"""
+        from miloco.perception.engine.config import DeepSortConfigDC
+        from miloco.perception.engine.identity import deep_sort
+        from miloco.perception.engine.identity.tracker import human_reid
+
+        class _FakeHumanReID:
+            def __init__(self, *args, **kwargs):
+                pass
+
+        monkeypatch.setattr(human_reid, "HumanReID", _FakeHumanReID)
+
+        tracker = deep_sort.DeepSortTracker(
+            detector=object(),
+            config=DeepSortConfigDC(human_reid_skip_windows=4),
+            fps=3,
+            window_len_sec=4,
+        )
+
+        assert tracker._mot.config.window_len_sec == 4
+        assert tracker._mot.config.window_fps == 3
+        assert tracker._mot._get_reid_interval() == 48
+
 
 # =============================================================================
 # DeepSortTracker API

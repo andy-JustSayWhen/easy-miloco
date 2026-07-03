@@ -103,8 +103,8 @@ def _default_num_threads() -> int:
             return max(1, value)
 
     cores = os.cpu_count() or _DEFAULT_NUM_THREADS
-    if cores <= 2:
-        return 1
     if cores <= 4:
+        return 1
+    if cores <= 6:
         return 2
     return _DEFAULT_NUM_THREADS
