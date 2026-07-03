@@ -4,8 +4,17 @@ import time
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from miloco.config import reset_settings
 from miloco.observability.metrics_db import connect, init_schema
 from miloco.observability.router import router
+
+
+@pytest.fixture(autouse=True)
+def _disable_service_token(monkeypatch):
+    monkeypatch.setenv("MILOCO_SERVER__TOKEN", "")
+    reset_settings()
+    yield
+    reset_settings()
 
 
 @pytest.fixture
@@ -244,7 +253,7 @@ def test_stats_omni_video_summary_aggregates_timing_detail(tmp_path):
         ),
         (
             "raw-not-remuxable",
-            now_ms,
+            now_ms - 500,
             {
                 "主卧/omni_video_cam3_reencode": 1,
                 "主卧/omni_video_cam3_output_bytes": 1_200_000,
@@ -252,6 +261,15 @@ def test_stats_omni_video_summary_aggregates_timing_detail(tmp_path):
                 "raw_encoded_video_keyframes": 0,
                 "raw_encoded_video_window_h264_packets": 180,
                 "raw_encoded_video_window_h265_packets": 0,
+            },
+        ),
+        (
+            "h265-empty-retry",
+            now_ms,
+            {
+                "主卧/omni_video_cam4_reencode": 1,
+                "主卧/omni_video_cam4_output_bytes": 900_000,
+                "主卧/omni_video_cam4_h265_empty_retry": 1,
             },
         ),
     ]
@@ -270,11 +288,12 @@ def test_stats_omni_video_summary_aggregates_timing_detail(tmp_path):
 
     assert r.status_code == 200
     d = r.json()
-    assert d["sample_count"] == 3
+    assert d["sample_count"] == 4
     assert d["remux_success_count"] == 1
     assert d["remux_fallback_count"] == 1
-    assert d["reencode_count"] == 2
+    assert d["reencode_count"] == 3
     assert d["h265_remux_skipped_count"] == 1
+    assert d["h265_empty_retry_count"] == 1
     assert d["input_packets_total"] == 420
     assert d["raw_window_packets_total"] == 480
     assert d["raw_keyframes_total"] == 0
@@ -282,11 +301,9 @@ def test_stats_omni_video_summary_aggregates_timing_detail(tmp_path):
     assert d["raw_window_h265_packets_total"] == 300
     assert d["output_bytes_max"] == 1_500_000
     assert d["remux_success_rate"] == pytest.approx(0.5)
-    assert d["latest"]["trace_id"] == "raw-not-remuxable"
-    assert d["latest"]["mode"] == "raw_not_remuxable"
-    assert d["latest"]["raw_window_packets"] == 180
-    assert d["latest"]["raw_window_h264_packets"] == 180
-    assert d["latest"]["raw_window_h265_packets"] == 0
+    assert d["latest"]["trace_id"] == "h265-empty-retry"
+    assert d["latest"]["mode"] == "h265_empty_retry"
+    assert d["latest"]["h265_empty_retry"] == 1
 
 
 def test_stats_gate_score_percentiles_per_device(tmp_path):

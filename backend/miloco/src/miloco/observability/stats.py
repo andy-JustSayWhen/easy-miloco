@@ -391,6 +391,7 @@ _OMNI_VIDEO_SUFFIXES = {
     "input_packets": "input_packets",
     "output_bytes": "output_bytes",
     "h265_remux_skipped": "h265_remux_skipped",
+    "h265_empty_retry": "h265_empty_retry",
 }
 
 
@@ -448,11 +449,14 @@ def omni_video_summary(conn, bucket, since, until):
     remux_success = sum(s["remux_success"] for s in samples)
     remux_fallback = sum(s["remux_fallback"] for s in samples)
     reencode = sum(s["reencode"] for s in samples)
+    h265_empty_retry = sum(s["h265_empty_retry"] for s in samples)
     total_attempts = remux_success + remux_fallback
     latest = samples[0] if samples else None
     latest_mode = "none"
     if latest:
-        if latest["remux_success"] > 0 and latest["reencode"] <= 0:
+        if latest["h265_empty_retry"] > 0:
+            latest_mode = "h265_empty_retry"
+        elif latest["remux_success"] > 0 and latest["reencode"] <= 0:
             latest_mode = "remux"
         elif latest["h265_remux_skipped"] > 0:
             latest_mode = "h265_reencode"
@@ -475,6 +479,7 @@ def omni_video_summary(conn, bucket, since, until):
         "h265_remux_skipped_count": sum(
             s["h265_remux_skipped"] for s in samples
         ),
+        "h265_empty_retry_count": h265_empty_retry,
         "input_packets_total": sum(s["input_packets"] for s in samples),
         "raw_window_packets_total": sum(s["raw_window_packets"] for s in samples),
         "raw_keyframes_total": sum(s["raw_keyframes"] for s in samples),
@@ -502,6 +507,7 @@ def omni_video_summary(conn, bucket, since, until):
                 "raw_window_h265_packets": latest["raw_window_h265_packets"],
                 "output_bytes": latest["output_bytes"],
                 "h265_remux_skipped": latest["h265_remux_skipped"],
+                "h265_empty_retry": latest["h265_empty_retry"],
             }
             if latest
             else None

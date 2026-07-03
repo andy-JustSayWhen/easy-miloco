@@ -124,6 +124,7 @@ def _record_omni_video_encode_stats(
     timing[f"{prefix}input_packets"] = float(stats.input_packets)
     timing[f"{prefix}output_bytes"] = float(stats.output_bytes)
     timing[f"{prefix}h265_remux_skipped"] = float(stats.h265_remux_skipped)
+    timing[f"{prefix}h265_empty_retry"] = float(stats.h265_empty_retry)
 
 
 def _omni_video_encode_stats_dict(packet: IdentityPacket) -> dict[str, float] | None:
@@ -137,6 +138,7 @@ def _omni_video_encode_stats_dict(packet: IdentityPacket) -> dict[str, float] | 
         "input_packets": float(stats.input_packets),
         "output_bytes": float(stats.output_bytes),
         "h265_remux_skipped": float(stats.h265_remux_skipped),
+        "h265_empty_retry": float(stats.h265_empty_retry),
     }
 
 
@@ -937,6 +939,8 @@ async def run_query_pipeline(
                 for packet in room_identity_packets
             ]
             answer, video_encode_stats = await _call_query(retry_packets)
+            if video_encode_stats is not None:
+                video_encode_stats["h265_empty_retry"] = 1.0
         if not answer:
             return None
         return room_name, QueryOutput(

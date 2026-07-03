@@ -376,6 +376,7 @@ class OnDemandPerceptionResult(BaseModel):
         default=None,
         description=(
             "Omni video payload encode stats. Numeric fields only, e.g. "
-            "remux_success/reencode/input_packets/output_bytes/h265_remux_skipped."
+            "remux_success/reencode/input_packets/output_bytes/"
+            "h265_remux_skipped/h265_empty_retry."
         ),
     )

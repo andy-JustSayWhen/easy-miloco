@@ -466,6 +466,7 @@ export interface PerfOmniVideoSummary {
   remux_fallback_count: number;
   reencode_count: number;
   h265_remux_skipped_count: number;
+  h265_empty_retry_count: number;
   input_packets_total: number;
   raw_window_packets_total: number;
   raw_keyframes_total: number;
@@ -480,6 +481,7 @@ export interface PerfOmniVideoSummary {
     timestamp: number;
     mode:
       | "remux"
+      | "h265_empty_retry"
       | "h265_reencode"
       | "raw_not_remuxable"
       | "reencode"
@@ -492,6 +494,7 @@ export interface PerfOmniVideoSummary {
     raw_window_h265_packets: number;
     output_bytes: number;
     h265_remux_skipped: number;
+    h265_empty_retry: number;
   } | null;
   window: { since: number; until: number };
 }

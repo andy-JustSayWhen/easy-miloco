@@ -37,6 +37,13 @@ function modeCopy(
         tone: "text-success",
         desc: "这次上传只做转封装，不重新压缩画面。",
       };
+    case "h265_empty_retry":
+      return {
+        title: "H.265 直传空回答，已自动兜底",
+        badge: "已重试",
+        tone: "text-warning",
+        desc: "先尝试低 CPU 的 H.265 转封装；如果 Omni 没有回答，会自动改用重新编码再问一次。",
+      };
     case "h265_reencode":
       return {
         title: "H.265 为保证回答质量正在重新编码",
@@ -131,7 +138,7 @@ function OmniVideoContent({ data }: { data: PerfOmniVideoSummary }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 xl:grid-cols-5 gap-3">
         <Metric
           label="原始包复用率"
           hint="remux success rate"
@@ -155,6 +162,12 @@ function OmniVideoContent({ data }: { data: PerfOmniVideoSummary }) {
           hint="h265 remux skipped"
           value={data.h265_remux_skipped_count.toFixed(0)}
           warn={data.h265_remux_skipped_count > 0}
+        />
+        <Metric
+          label="H.265 空回答重试"
+          hint="h265 empty retry"
+          value={data.h265_empty_retry_count.toFixed(0)}
+          warn={data.h265_empty_retry_count > 0}
         />
       </div>
 
