@@ -603,6 +603,12 @@ export interface PerformanceConfigParam {
   options?: PerformanceParamValue[] | null;
   impact: string;
   requires_backend_restart: boolean;
+  env_override?: {
+    active: boolean;
+    env_var: string;
+    value: string | null;
+    message: string | null;
+  };
 }
 
 export interface PerformanceConfigState {

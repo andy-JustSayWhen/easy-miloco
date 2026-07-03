@@ -202,7 +202,9 @@ function changedParams(
   params: PerformanceConfigParam[],
   draft: Record<string, PerformanceParamValue>,
 ): PerformanceConfigParam[] {
-  return params.filter((p) => draft[p.path] !== (p.value ?? ""));
+  return params.filter(
+    (p) => !p.env_override?.active && draft[p.path] !== (p.value ?? ""),
+  );
 }
 
 function summarizeConfigValue(path: string, value: PerformanceParamValue): string {
@@ -431,6 +433,7 @@ export function PerformanceTuningPanel({
   const changedValues = (): Record<string, PerformanceParamValue> => {
     const out: Record<string, PerformanceParamValue> = {};
     for (const param of params) {
+      if (param.env_override?.active) continue;
       const value = draft[param.path];
       if (value === (param.value ?? "")) continue;
       if (
@@ -778,7 +781,8 @@ export function PerformanceTuningPanel({
           const current = draft[param.path] ?? "";
           const recommended =
             diagnosis?.recommended_config[param.path] !== undefined;
-          const changed = current !== (param.value ?? "");
+          const envLocked = !!param.env_override?.active;
+          const changed = !envLocked && current !== (param.value ?? "");
           const copy = PARAM_COPY[param.path] ?? {
             zh: param.label,
             en: param.label,
@@ -786,7 +790,7 @@ export function PerformanceTuningPanel({
             purpose: param.description,
             effect: param.impact,
           };
-          const controlClass = `w-full rounded-md border px-2 py-2 bg-bg-primary text-text-primary ${
+          const controlClass = `w-full rounded-md border px-2 py-2 bg-bg-primary text-text-primary disabled:opacity-60 disabled:cursor-not-allowed ${
             changed || recommended ? "border-brand-primary" : "border-border"
           }`;
           return (
@@ -816,6 +820,11 @@ export function PerformanceTuningPanel({
                       {t("perf.tuningChanged")}
                     </span>
                   ) : null}
+                  {envLocked ? (
+                    <span className="shrink-0 rounded-full bg-warning-bg text-warning border border-warning/40 px-2 py-0.5 text-caption">
+                      外部锁定
+                    </span>
+                  ) : null}
                 </div>
               </div>
 
@@ -835,6 +844,7 @@ export function PerformanceTuningPanel({
                 {param.options ? (
                   <select
                     value={String(current)}
+                    disabled={envLocked}
                     onChange={(e) =>
                       updateDraft(param.path, valueFromInput(param, e.target.value))
                     }
@@ -849,6 +859,7 @@ export function PerformanceTuningPanel({
                 ) : param.type === "boolean" ? (
                   <select
                     value={String(current)}
+                    disabled={envLocked}
                     onChange={(e) =>
                       updateDraft(param.path, valueFromInput(param, e.target.value))
                     }
@@ -864,6 +875,7 @@ export function PerformanceTuningPanel({
                     max={param.max ?? undefined}
                     step={param.step ?? undefined}
                     value={String(current)}
+                    disabled={envLocked}
                     onChange={(e) =>
                       updateDraft(param.path, valueFromInput(param, e.target.value))
                     }
@@ -880,6 +892,12 @@ export function PerformanceTuningPanel({
                 <div className="text-text-secondary">{supportedRangeText(param)}</div>
                 <div className="text-text-secondary">{copy.effect}</div>
                 <div className="text-text-tertiary opacity-70">{copy.hint}</div>
+                {envLocked ? (
+                  <div className="rounded-md border border-warning/40 bg-warning-bg px-2 py-1 text-warning">
+                    当前被环境变量 {param.env_override?.env_var}={param.env_override?.value} 覆盖。
+                    面板写入 config.json 后也不会生效，需要先从 Docker/启动脚本里移除这个变量再重启后端。
+                  </div>
+                ) : null}
               </div>
             </div>
           );

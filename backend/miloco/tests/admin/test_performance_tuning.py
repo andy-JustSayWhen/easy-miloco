@@ -37,6 +37,21 @@ def test_budget_uses_half_of_host_cpu_and_ram(monkeypatch):
     assert data["memory_over_budget"] is True
 
 
+def test_performance_config_marks_env_overrides(monkeypatch):
+    monkeypatch.setenv("MILOCO_CAMERA__FRAME_INTERVAL", "1000")
+    reset_settings()
+
+    payload = pt.build_performance_config_payload()
+    frame_interval = next(
+        item for item in payload["params"] if item["path"] == "camera.frame_interval"
+    )
+
+    assert frame_interval["value"] == 1000
+    assert frame_interval["env_override"]["active"] is True
+    assert frame_interval["env_override"]["env_var"] == "MILOCO_CAMERA__FRAME_INTERVAL"
+    assert frame_interval["env_override"]["value"] == "1000"
+
+
 @pytest.mark.asyncio
 async def test_diagnosis_input_contains_runtime_perf_scope_and_config(monkeypatch):
     monkeypatch.setattr(
@@ -130,6 +145,17 @@ def test_apply_still_rejects_unknown_config_path():
         pt.apply_performance_config({"server.token": "leak"})
     assert exc.value.status_code == 422
     assert "unsupported config path" in exc.value.detail
+
+
+def test_apply_rejects_paths_locked_by_env(monkeypatch):
+    monkeypatch.setenv("MILOCO_CAMERA__FRAME_INTERVAL", "1000")
+    reset_settings()
+
+    with pytest.raises(HTTPException) as exc:
+        pt.apply_performance_config({"camera.frame_interval": 1500})
+
+    assert exc.value.status_code == 409
+    assert "MILOCO_CAMERA__FRAME_INTERVAL" in exc.value.detail
 
 
 @pytest.mark.asyncio

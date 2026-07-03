@@ -304,6 +304,26 @@ def _get_path(data: dict[str, Any], path: str) -> Any:
     return cur
 
 
+def _env_var_for_path(path: str) -> str:
+    return f"MILOCO_{path.replace('.', '__').upper()}"
+
+
+def _env_override_for_path(path: str) -> dict[str, Any]:
+    expected = _env_var_for_path(path)
+    for key, value in os.environ.items():
+        if key.upper() == expected:
+            return {
+                "active": True,
+                "env_var": key,
+                "value": value,
+                "message": (
+                    f"{key} is set and overrides config.json until the backend "
+                    "is started without this environment variable."
+                ),
+            }
+    return {"active": False, "env_var": expected, "value": None, "message": None}
+
+
 def _set_path(data: dict[str, Any], path: str, value: ConfigValue) -> None:
     cur = data
     parts = path.split(".")
@@ -403,6 +423,7 @@ def build_performance_config_payload() -> dict[str, Any]:
     settings = _settings_dict()
     params = []
     for spec in CONFIG_SPECS:
+        env_override = _env_override_for_path(spec.path)
         params.append(
             {
                 "path": spec.path,
@@ -416,6 +437,7 @@ def build_performance_config_payload() -> dict[str, Any]:
                 "options": list(spec.options) if spec.options is not None else None,
                 "impact": spec.impact,
                 "requires_backend_restart": True,
+                "env_override": env_override,
             }
         )
     return {"params": params, "requires_backend_restart": True}
@@ -759,6 +781,19 @@ def schedule_backend_restart(delay_s: float = 0.75) -> dict[str, Any]:
 
 def apply_performance_config(values: dict[str, Any]) -> dict[str, Any]:
     validated = _validate_values(values)
+    locked = [
+        f"{path} ({_env_override_for_path(path)['env_var']})"
+        for path in validated
+        if _env_override_for_path(path)["active"]
+    ]
+    if locked:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Cannot apply config paths while environment variables override "
+                f"them: {', '.join(locked)}"
+            ),
+        )
     if _restart_command() is None:
         raise HTTPException(
             status_code=503,
