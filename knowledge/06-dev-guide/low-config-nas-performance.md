@@ -166,6 +166,7 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 | 第一轮-默认质量反证 | 把 NAS 恢复到默认质量参数做短 A/B：`video_quality=HIGH`、`frame_interval=1000`、`max_cache_images=6`、`window_size=4`、`max_windows=3`、`input.fps=3`、`period_sec=4`、`tracking_service_mode=deep_sort`、`identity_engine.enabled=true` | 无代码变更 | 有效样本 19 笔；CPU 峰值 276.6%、平均 116.5%，超过 4 核宿主 200% 预算；RSS 峰值 466.8MB、平均 432.2MB，低于内存预算；阶段历史 P95：`identity_ms` 约 66088.6ms、`omni_ms` 约 54021.7ms、`decode_ms` 约 1972.5ms、`gate_ms` 约 1409.9ms | 默认高质量 + 深度身份识别在一路桌面摄像头上仍可能冲破 CPU 预算；低配 NAS 的稳定方案不能只靠第一轮无损优化，还必须保留第二轮 LOW/降频/身份降级预设 |
 | 运维固化 | `miloco-cli service start/restart` 生成 supervisor 配置时主动 `env -u` 性能页可调的 `MILOCO_*` 环境变量，避免旧 compose/shell 环境在每次重启后重新覆盖 `config.json` | `cd cli && uv run pytest tests/test_commands.py -q`：141 passed；定向 `ruff check` 通过。全量 backend ruff 仍有 3 个既有测试 import 排序问题，和本改动无关 | NAS 现场先热修 `/data/miloco/supervisord.conf` 为 `env -u MILOCO_CAMERA__FRAME_INTERVAL ... python -m miloco.main` 并重启；随后 `/health` 恢复，进程环境不再含该变量，`/api/admin/performance-config` 显示 `camera.frame_interval=5000` | 解决“低配配置已写入但重启后又变回 1000ms”的反复根因；后续 CLI 管理服务不会再次生成会继承旧性能环境变量的 supervisor 命令 |
 | 第一轮-CPU | ONNX Runtime session 线程自适应：`MILOCO_ORT_NUM_THREADS` 可覆盖；默认在 4 核及以下机器把 intra-op 收敛到 2/1，并把 inter-op 固定为 1，避免 detector 与 ReID 多 session 线程池互相抢占 | `uv run pytest miloco/tests/perception/test_ort_utils.py -q`：3 passed；`uv run pytest miloco/tests/perception/engine/test_get_reid_extractor_fallback.py miloco/tests/perception/engine/identity/test_deep_sort_v12.py::TestDeepSortConfigDC -q`：5 passed；定向 ruff 通过 | NAS 热补丁 `ort_utils.py` 并重启后，临时恢复默认高质量/deep_sort normal 配置做 90 秒采样：18 笔，每 5 秒一次，CPU 峰值 150.0%、平均 143.7%，RSS 峰值 558.8MB、平均 500.1MB；随后恢复 LOW 低配配置、重启，`/health` 为 ok，临时脚本已删除 | 不改变模型、画质、阈值和识别语义，只降低 ONNX 推理并行抢占。短采样显示默认质量一路摄像头 CPU 峰值从上轮 276.6% 降到 150.0%，低于 4 核宿主 200% 预算；仍需更长时间、有人移动和多路摄像头复验 |
+| 第一轮-长采样复验 | 继续使用 ORT 线程收敛后的默认高质量/deep_sort normal 配置，只读采样 5 分钟，不开浏览器、不触发主动查询 | 无代码变更 | 60 笔采样，每 5 秒一次：CPU 峰值 195.0%、平均 151.7%，RSS 峰值 609.2MB、平均 505.6MB；低于 4 核宿主 200% CPU 预算和约 3905.5MB RAM 预算；测试后恢复 LOW 低配配置并重启，`/health` 为 ok，临时脚本已删除 | 5 分钟一路默认质量静态运行仍达标，但 CPU 峰值已贴近预算线，只证明当前桌面摄像头/静态场景；有人移动、规则触发、Omni 上传、更多摄像头仍必须继续复验 |
 
 ## 当前结论（2026-07-03 NAS 实测）
 
@@ -192,6 +193,8 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 随后做了一轮默认质量反向 A/B：恢复 HIGH 拉流、1000ms 取帧、3 FPS、短窗口和 deep_sort 身份识别后，CPU 峰值升到 276.6%，超过 4 核宿主的 200% 预算；RSS 峰值 466.8MB，内存仍安全。这说明当前真正会把低配 NAS 带崩的是“高频输入 + 深度身份识别 + Omni 长等待窗口叠加”带来的 CPU 峰值，而不是 LLM API Key 是否配置。LLM API 只把理解放到云端；本地仍要完成拉流、解码、Gate、身份识别、视频构造和上传前准备。
 
 针对这个默认质量 CPU 峰值，源码进一步收敛 ONNX Runtime 线程：低核 NAS 上 detector（目标检测模型）和 ReID（人体特征模型）不再各自用 4 个 intra-op 线程再配 4 个 inter-op 线程，而是 4 核机器默认 intra-op=2、inter-op=1。这里的 intra-op 指单个算子内部并行，inter-op 指多个算子之间并行；这只改变线程调度，不改变模型本身和识别输出。NAS 热补丁后，在同样 HIGH/1000ms/3 FPS/deep_sort normal 配置下做 90 秒短采样，CPU 峰值 150.0%、平均 143.7%，RSS 峰值 558.8MB，低于 4 核宿主 200% CPU 预算。测试后已恢复 LOW 低配配置并重启，健康接口恢复 `ok`。
+
+进一步把同一默认质量配置延长到 5 分钟只读采样：60 笔、每 5 秒一次，CPU 峰值 195.0%、平均 151.7%，RSS 峰值 609.2MB、平均 505.6MB。这个结果仍低于 4 核宿主的 200% CPU 预算，但已经贴近预算线，说明第一轮无损优化在“单路静态桌面摄像头”上基本够用，却不能直接外推到多人移动、多路摄像头或规则频繁触发。采样结束后已恢复 LOW/5000ms/mock 身份识别的低配配置，并清理 `/tmp/codex-miloco-*` 临时文件。
 
 仓库侧已经把这个故障模式固化为产品行为：`GET /admin/performance-config` 会给每个性能参数返回 `env_override`，说明对应的 `MILOCO_*` 环境变量是否正在覆盖 `config.json`；前端会把这类参数标记为“外部锁定”，禁用输入，并提示需要先从 Docker/启动脚本移除变量。`POST /admin/performance-config/apply` 也会拒绝被外部锁定的参数，避免静默写入一个重启后仍不会生效的值。
 
