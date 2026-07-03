@@ -14,6 +14,7 @@ from collections import deque
 from io import BytesIO
 from typing import Callable, Coroutine, List, Optional
 
+import av
 from av.audio.codeccontext import AudioCodecContext
 from av.audio.frame import AudioFrame
 from av.audio.resampler import AudioResampler
@@ -35,6 +36,18 @@ _H264_IDR_NAL_TYPE = 5
 # any of these starts a new GOP, so we treat them all as "key" for the
 # purpose of buffer-overflow eviction.
 _H265_IRAP_NAL_TYPES = frozenset({16, 17, 18, 19, 20, 21})
+
+_VIDEO_SOFTWARE_DECODER: dict[MIoTCameraCodec, str] = {
+    MIoTCameraCodec.VIDEO_H264: "h264",
+    MIoTCameraCodec.VIDEO_H265: "hevc",
+}
+
+_VIDEO_HW_DECODER_CANDIDATES: dict[str, tuple[str, ...]] = {
+    # Intel Quick Sync first: common on low-power x86 NAS such as N5105/N100.
+    # v4l2m2m remains useful on Linux devices where FFmpeg exposes it.
+    "h264": ("h264_qsv", "h264_v4l2m2m"),
+    "hevc": ("hevc_qsv", "hevc_v4l2m2m"),
+}
 
 
 def _is_key_access_unit(item: MIoTCameraFrameData) -> bool:
@@ -184,6 +197,7 @@ class MIoTMediaDecoder(threading.Thread):
 
     _queue: MIoTMediaRingBuffer
     _video_decoder: Optional[CodecContext]
+    _video_decoder_name: Optional[str]
     _audio_decoder: Optional[CodecContext]
     _resampler: AudioResampler
 
@@ -227,6 +241,7 @@ class MIoTMediaDecoder(threading.Thread):
 
         self._queue = MIoTMediaRingBuffer()
         self._video_decoder = None
+        self._video_decoder_name = None
         self._audio_decoder = None
         self._resampler = None  # type: ignore
 
@@ -253,6 +268,7 @@ class MIoTMediaDecoder(threading.Thread):
         self._running = False
         self._queue.stop()
         self._video_decoder = None
+        self._video_decoder_name = None
         self._audio_decoder = None
         self.join()
 
@@ -277,10 +293,95 @@ class MIoTMediaDecoder(threading.Thread):
             return []
 
     def choose_hw_decoder(self, codec_name, hw_methods):
-        if codec_name in ("h264", "hevc"):
-            if f"{codec_name}_v4l2m2m" in hw_methods:
-                return f"{codec_name}_v4l2m2m"
+        """Return the preferred decoder name for a codec.
+
+        ``hw_methods`` is kept for backward compatibility with the old ffmpeg
+        CLI probe, but PyAV's codec registry is the source of truth for this
+        process. Some NAS images do not ship a system ``ffmpeg`` binary even
+        though PyAV was built with QSV/v4l2m2m codecs.
+        """
+        names = set(map(str, hw_methods or ()))
+        names.update(self._available_decoder_names())
+        for candidate in _VIDEO_HW_DECODER_CANDIDATES.get(codec_name, ()):
+            if candidate in names:
+                return candidate
         return codec_name
+
+    def _available_decoder_names(self) -> set[str]:
+        try:
+            return set(map(str, av.codecs_available))
+        except Exception:
+            return set()
+
+    def _decoder_candidates(self, codec_name: str) -> list[str]:
+        candidates: list[str] = []
+        available = self._available_decoder_names()
+        if self._enable_hw_accel:
+            preferred = self.choose_hw_decoder(codec_name, ())
+            if preferred != codec_name:
+                candidates.append(preferred)
+            for name in _VIDEO_HW_DECODER_CANDIDATES.get(codec_name, ()):
+                if name != preferred and name in available:
+                    candidates.append(name)
+        candidates.append(codec_name)
+        # Preserve order while removing duplicates.
+        return list(dict.fromkeys(candidates))
+
+    def _create_video_decoder(self, codec_id: MIoTCameraCodec) -> CodecContext | None:
+        codec_name = _VIDEO_SOFTWARE_DECODER.get(codec_id)
+        if codec_name is None:
+            return None
+        for candidate in self._decoder_candidates(codec_name):
+            try:
+                decoder = VideoCodecContext.create(candidate, "r")
+            except Exception as err:
+                if candidate != codec_name:
+                    _LOGGER.info(
+                        "video hardware decoder unavailable, codec=%s decoder=%s error=%s",
+                        codec_name,
+                        candidate,
+                        err,
+                    )
+                    continue
+                raise
+            self._video_decoder_name = candidate
+            if candidate == codec_name:
+                _LOGGER.info("video decoder created, codec=%s decoder=%s", codec_id, candidate)
+            else:
+                _LOGGER.info(
+                    "video hardware decoder created, codec=%s decoder=%s",
+                    codec_id,
+                    candidate,
+                )
+            return decoder
+        return None
+
+    def _software_decoder_name(self, codec_id: MIoTCameraCodec) -> str | None:
+        return _VIDEO_SOFTWARE_DECODER.get(codec_id)
+
+    def _decode_video_packet(self, pkt: Packet, frame_data: MIoTCameraFrameData) -> List[VideoFrame]:
+        if not self._video_decoder:
+            self._video_decoder = self._create_video_decoder(frame_data.codec_id)
+        if not self._video_decoder:
+            return []
+        try:
+            return self._video_decoder.decode(pkt)  # type: ignore
+        except Exception:
+            software = self._software_decoder_name(frame_data.codec_id)
+            if self._video_decoder_name == software:
+                raise
+            _LOGGER.warning(
+                "video hardware decoder failed during decode; falling back to software, "
+                "did=%s decoder=%s codec=%s",
+                frame_data.did,
+                self._video_decoder_name,
+                frame_data.codec_id,
+            )
+            self._video_decoder = VideoCodecContext.create(software, "r") if software else None
+            self._video_decoder_name = software
+            if not self._video_decoder:
+                return []
+            return self._video_decoder.decode(pkt)  # type: ignore
 
     def _should_emit_video_frame(self, now_ts: int) -> bool:
         """Rate-limit decoded BGR frame callbacks using frame_interval."""
@@ -293,15 +394,8 @@ class MIoTMediaDecoder(threading.Thread):
         return True
 
     def _on_video_callback(self, frame_data: MIoTCameraFrameData) -> None:
-        if not self._video_decoder:
-            # Create video decoder
-            if frame_data.codec_id == MIoTCameraCodec.VIDEO_H264:
-                self._video_decoder = VideoCodecContext.create("h264", "r")
-            elif frame_data.codec_id == MIoTCameraCodec.VIDEO_H265:
-                self._video_decoder = VideoCodecContext.create("hevc", "r")
-            _LOGGER.info("video decoder created, %s", frame_data.codec_id)
         pkt = Packet(frame_data.data)
-        frames: List[VideoFrame] = self._video_decoder.decode(pkt)  # type: ignore
+        frames = self._decode_video_packet(pkt, frame_data)
         decoded_unix_ms = int(time.time() * 1000)
         # Emit decoded frames as BGR numpy arrays at the configured sampling
         # interval. The decoder still consumes every packet so H.264/H.265

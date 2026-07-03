@@ -246,6 +246,100 @@ def test_decoder_rate_limits_video_frame_callbacks():
         loop.close()
 
 
+def test_decoder_prefers_qsv_codec_when_pyav_exposes_it(monkeypatch):
+    """Intel NAS images may expose QSV codecs through PyAV without ffmpeg CLI."""
+    monkeypatch.setattr(
+        "miot.decoder.av.codecs_available",
+        {"h264", "h264_qsv", "hevc", "hevc_qsv"},
+        raising=False,
+    )
+    loop = asyncio.new_event_loop()
+    try:
+        decoder = MIoTMediaDecoder(
+            frame_interval=1000,
+            video_callback=_noop_video_callback,
+            enable_hw_accel=True,
+            main_loop=loop,
+        )
+        assert decoder.choose_hw_decoder("h264", ()) == "h264_qsv"
+        assert decoder.choose_hw_decoder("hevc", ()) == "hevc_qsv"
+    finally:
+        loop.close()
+
+
+def test_decoder_create_falls_back_when_hw_decoder_create_fails(monkeypatch):
+    """A mapped codec name is only a candidate; device/runtime failures fall back."""
+    calls: list[str] = []
+    software_decoder = object()
+
+    monkeypatch.setattr(
+        "miot.decoder.av.codecs_available",
+        {"h264", "h264_qsv"},
+        raising=False,
+    )
+
+    def fake_create(name: str, mode: str):
+        calls.append(name)
+        assert mode == "r"
+        if name == "h264_qsv":
+            raise RuntimeError("no qsv device")
+        return software_decoder
+
+    monkeypatch.setattr("miot.decoder.VideoCodecContext.create", fake_create)
+    loop = asyncio.new_event_loop()
+    try:
+        decoder = MIoTMediaDecoder(
+            frame_interval=1000,
+            video_callback=_noop_video_callback,
+            enable_hw_accel=True,
+            main_loop=loop,
+        )
+        assert decoder._create_video_decoder(MIoTCameraCodec.VIDEO_H264) is software_decoder
+        assert calls == ["h264_qsv", "h264"]
+        assert decoder._video_decoder_name == "h264"
+    finally:
+        loop.close()
+
+
+def test_decoder_decode_falls_back_when_hw_decoder_fails(monkeypatch):
+    """If QSV opens but decode fails, retry the same packet with software."""
+    calls: list[str] = []
+
+    class HwDecoder:
+        def decode(self, _pkt):
+            raise RuntimeError("device lost")
+
+    class SoftwareDecoder:
+        def decode(self, _pkt):
+            return []
+
+    monkeypatch.setattr(
+        "miot.decoder.av.codecs_available",
+        {"h264", "h264_qsv"},
+        raising=False,
+    )
+
+    def fake_create(name: str, mode: str):
+        calls.append(name)
+        assert mode == "r"
+        return HwDecoder() if name == "h264_qsv" else SoftwareDecoder()
+
+    monkeypatch.setattr("miot.decoder.VideoCodecContext.create", fake_create)
+    loop = asyncio.new_event_loop()
+    try:
+        decoder = MIoTMediaDecoder(
+            frame_interval=1000,
+            video_callback=_noop_video_callback,
+            enable_hw_accel=True,
+            main_loop=loop,
+        )
+        assert decoder._decode_video_packet(object(), _make_frame(MIoTCameraFrameType.FRAME_I)) == []
+        assert calls == ["h264_qsv", "h264"]
+        assert decoder._video_decoder_name == "h264"
+    finally:
+        loop.close()
+
+
 # ─── _is_key_access_unit (NAL byte-stream key detection) ──────────────────────
 
 
