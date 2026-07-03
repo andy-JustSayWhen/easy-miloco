@@ -34,6 +34,7 @@ import type {
   PerformanceReportDetail,
   PerformanceReportMeta,
   PerfOmniErrorPoint,
+  PerfOmniVideoSummary,
   PerfRtfPoint,
   PerfStagePercentiles,
   PerfSummary,
@@ -474,6 +475,15 @@ export async function getPerfStagePercentiles(
   const since = windowToSince(w);
   return apiFetch<PerfStagePercentiles>(
     `/api/stats?metric=stage_percentiles&since=${since}`,
+  );
+}
+
+export async function getPerfOmniVideoSummary(
+  w: PerfWindow,
+): Promise<PerfOmniVideoSummary> {
+  const since = windowToSince(w);
+  return apiFetch<PerfOmniVideoSummary>(
+    `/api/stats?metric=omni_video_summary&since=${since}`,
   );
 }
 

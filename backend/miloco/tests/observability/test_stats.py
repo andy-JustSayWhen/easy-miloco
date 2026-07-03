@@ -1,3 +1,4 @@
+import json
 import time
 
 import pytest
@@ -209,6 +210,60 @@ def test_stats_stage_percentiles(app_with_full_data):
     # identity/omni 只在前 10 条非 skip cycle 才 >0;i==3 omni 错误过滤后剩 9
     assert d["identity_ms"]["sample_size"] == 9
     assert d["omni_ms"]["sample_size"] == 9
+
+
+def test_stats_omni_video_summary_aggregates_timing_detail(tmp_path):
+    db = tmp_path / "obs.db"
+    conn = connect(db)
+    init_schema(conn)
+    now_ms = int(time.time() * 1000)
+    rows = [
+        (
+            "h264-remux",
+            now_ms - 2_000,
+            {
+                "客厅/omni_video_cam1_remux_success": 1,
+                "客厅/omni_video_cam1_input_packets": 120,
+                "客厅/omni_video_cam1_output_bytes": 600_000,
+            },
+        ),
+        (
+            "h265-reencode",
+            now_ms - 1_000,
+            {
+                "卧室/omni_video_cam2_remux_fallback": 1,
+                "卧室/omni_video_cam2_reencode": 1,
+                "卧室/omni_video_cam2_input_packets": 300,
+                "卧室/omni_video_cam2_output_bytes": 1_500_000,
+                "卧室/omni_video_cam2_h265_remux_skipped": 1,
+            },
+        ),
+    ]
+    for trace_id, ts, detail in rows:
+        conn.execute(
+            "INSERT INTO traces (trace_id, timestamp, timing_detail) VALUES (?, ?, ?)",
+            (trace_id, ts, json.dumps(detail, ensure_ascii=False)),
+        )
+    conn.close()
+
+    app = FastAPI()
+    app.include_router(router)
+    app.state.obs_db_path = db
+    with TestClient(app) as tc:
+        r = tc.get("/api/stats?metric=omni_video_summary")
+
+    assert r.status_code == 200
+    d = r.json()
+    assert d["sample_count"] == 2
+    assert d["remux_success_count"] == 1
+    assert d["remux_fallback_count"] == 1
+    assert d["reencode_count"] == 1
+    assert d["h265_remux_skipped_count"] == 1
+    assert d["input_packets_total"] == 420
+    assert d["output_bytes_max"] == 1_500_000
+    assert d["remux_success_rate"] == pytest.approx(0.5)
+    assert d["latest"]["trace_id"] == "h265-reencode"
+    assert d["latest"]["mode"] == "h265_reencode"
 
 
 def test_stats_gate_score_percentiles_per_device(tmp_path):

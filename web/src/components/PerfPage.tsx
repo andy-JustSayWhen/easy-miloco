@@ -7,10 +7,11 @@
  *   3. Gate 过滤率(PerfGateChart)       — gate_pass_rate
  *   4. Omni 错误时序(PerfOmniErrorChart)— omni_error_series
  *   5. 窗口丢弃数(PerfDropChart)        — drop_series
- *   6. 阶段耗时分布(PerfStageTable)     — stage_percentiles
- *   7. 最近 Agent 调用(PerfAgentList)    — /api/traces?has_agent=1
- *   8. 近期处理耗时(PerfTraceTimingChart)— latency_percentiles
- *   9. 原始 trace 列表(PerfTraceList)   — /api/traces
+ *   6. Omni 上传视频(PerfOmniVideoCard) — omni_video_summary
+ *   7. 阶段耗时分布(PerfStageTable)     — stage_percentiles
+ *   8. 最近 Agent 调用(PerfAgentList)    — /api/traces?has_agent=1
+ *   9. 近期处理耗时(PerfTraceTimingChart)— latency_percentiles
+ *   10. 原始 trace 列表(PerfTraceList)  — /api/traces
  *
  * 直接接 backend observability 真接口,不走 mock。空数据时各子区块自行降级显示。
  */
@@ -28,6 +29,7 @@ import {
   getPerfGateScorePercentiles,
   getPerfLatencyPercentiles,
   getPerfOmniErrorSeries,
+  getPerfOmniVideoSummary,
   getPerfRtfSeries,
   getPerfStagePercentiles,
   getPerfSummary,
@@ -51,6 +53,7 @@ import { PerfAgentList } from "./PerfAgentList";
 import { PerfKpiCards } from "./PerfKpiCards";
 import { PerfMemoryChart } from "./PerfMemoryChart";
 import { PerfOmniErrorChart } from "./PerfOmniErrorChart";
+import { PerfOmniVideoCard } from "./PerfOmniVideoCard";
 import { PerfRtfChart } from "./PerfRtfChart";
 import { PerfDropChart } from "./PerfDropChart";
 import { PerfGateChart } from "./PerfGateChart";
@@ -119,6 +122,11 @@ export function PerfPage() {
     [windowKey, bucket],
     { errorLabel: t("perf.errOmni") },
   );
+  const omniVideo = useAsync(
+    () => getPerfOmniVideoSummary(windowKey),
+    [windowKey],
+    { errorLabel: "上传视频统计加载失败" },
+  );
   const agentRuns = useAsync(
     () => listPerfAgentRuns(windowKey, 50),
     [windowKey],
@@ -156,6 +164,7 @@ export function PerfPage() {
     gateScores.reload();
     drop.reload();
     omniErr.reload();
+    omniVideo.reload();
     agentRuns.reload();
     memSnapshot.reload();
     memSeries.reload();
@@ -232,10 +241,13 @@ export function PerfPage() {
       {/* 5. 窗口丢弃数(柱状图,绝对值) */}
       <PerfDropChart state={drop} bucket={bucket} windowMs={windowMs} />
 
-      {/* 6. 阶段耗时分布 */}
+      {/* 6. Omni 上传视频构造 */}
+      <PerfOmniVideoCard state={omniVideo} />
+
+      {/* 7. 阶段耗时分布 */}
       <PerfStageTable state={stages} />
 
-      {/* 6.5 进程内存（smaps + py_heap），与 perf 因果链解耦的运行时观察项 */}
+      {/* 7.5 进程内存（smaps + py_heap），与 perf 因果链解耦的运行时观察项 */}
       <PerfMemoryChart
         seriesState={memSeries}
         snapshotState={memSnapshot}
@@ -244,10 +256,10 @@ export function PerfPage() {
         uname={uname}
       />
 
-      {/* 7. 最近 Agent 调用(指令 / 耗时 / LLM-Tool 次数) */}
+      {/* 8. 最近 Agent 调用(指令 / 耗时 / LLM-Tool 次数) */}
       <PerfAgentList state={agentRuns} windowMs={windowMs} />
 
-      {/* 8. 近期处理耗时(按 bucket 聚合 P50/P75/P95/P99) */}
+      {/* 9. 近期处理耗时(按 bucket 聚合 P50/P75/P95/P99) */}
       <PerfTraceTimingChart
         state={latency}
         bucket={bucket}
@@ -259,7 +271,7 @@ export function PerfPage() {
         }
       />
 
-      {/* 9. trace 列表 */}
+      {/* 10. trace 列表 */}
       <PerfTraceList state={traces} windowMs={windowMs} />
     </div>
   );

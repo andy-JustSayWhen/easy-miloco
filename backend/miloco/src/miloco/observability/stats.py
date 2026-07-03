@@ -4,6 +4,7 @@ bucket 粒度:5m / 1h / 1d。SQLite 无 percentile_cont,用 Python 端 sort 实�
 """
 from __future__ import annotations
 
+import json
 import statistics
 import time
 from typing import Any
@@ -383,6 +384,102 @@ def stage_percentiles(conn, bucket, since, until):
     return result
 
 
+_OMNI_VIDEO_SUFFIXES = {
+    "remux_success": "remux_success",
+    "remux_fallback": "remux_fallback",
+    "reencode": "reencode",
+    "input_packets": "input_packets",
+    "output_bytes": "output_bytes",
+    "h265_remux_skipped": "h265_remux_skipped",
+}
+
+
+def _sum_timing_suffix(detail: dict[str, Any], suffix: str) -> float:
+    marker = f"_{suffix}"
+    total = 0.0
+    for key, value in detail.items():
+        if key == f"omni_video_{suffix}" or key.endswith(marker):
+            if isinstance(value, (int, float)):
+                total += float(value)
+    return total
+
+
+def omni_video_summary(conn, bucket, since, until):
+    """Aggregate Omni upload-video construction stats from timing_detail JSON."""
+    s, u = _window(since, until)
+    rows = conn.execute(
+        "SELECT trace_id, timestamp, timing_detail FROM traces "
+        "WHERE timestamp BETWEEN ? AND ? AND timing_detail IS NOT NULL "
+        "ORDER BY timestamp DESC",
+        (s, u),
+    ).fetchall()
+
+    samples: list[dict[str, Any]] = []
+    for trace_id, ts, raw_detail in rows:
+        try:
+            detail = json.loads(raw_detail)
+        except Exception:  # noqa: BLE001 - bad historical rows should not break stats.
+            continue
+        if not isinstance(detail, dict):
+            continue
+        sample = {
+            public: _sum_timing_suffix(detail, suffix)
+            for public, suffix in _OMNI_VIDEO_SUFFIXES.items()
+        }
+        if not any(value > 0 for value in sample.values()):
+            continue
+        sample["trace_id"] = trace_id
+        sample["timestamp"] = ts
+        samples.append(sample)
+
+    output_bytes = [s["output_bytes"] for s in samples if s["output_bytes"] > 0]
+    remux_success = sum(s["remux_success"] for s in samples)
+    remux_fallback = sum(s["remux_fallback"] for s in samples)
+    reencode = sum(s["reencode"] for s in samples)
+    total_attempts = remux_success + remux_fallback
+    latest = samples[0] if samples else None
+    latest_mode = "none"
+    if latest:
+        if latest["remux_success"] > 0 and latest["reencode"] <= 0:
+            latest_mode = "remux"
+        elif latest["h265_remux_skipped"] > 0:
+            latest_mode = "h265_reencode"
+        elif latest["reencode"] > 0:
+            latest_mode = "reencode"
+        elif latest["remux_fallback"] > 0:
+            latest_mode = "fallback"
+
+    return {
+        "sample_count": len(samples),
+        "remux_success_count": remux_success,
+        "remux_fallback_count": remux_fallback,
+        "reencode_count": reencode,
+        "h265_remux_skipped_count": sum(
+            s["h265_remux_skipped"] for s in samples
+        ),
+        "input_packets_total": sum(s["input_packets"] for s in samples),
+        "output_bytes_avg": statistics.mean(output_bytes) if output_bytes else 0.0,
+        "output_bytes_p95": _percentile(output_bytes, 0.95) if output_bytes else 0.0,
+        "output_bytes_max": max(output_bytes) if output_bytes else 0.0,
+        "remux_success_rate": (
+            remux_success / total_attempts if total_attempts > 0 else 0.0
+        ),
+        "latest": (
+            {
+                "trace_id": latest["trace_id"],
+                "timestamp": latest["timestamp"],
+                "mode": latest_mode,
+                "input_packets": latest["input_packets"],
+                "output_bytes": latest["output_bytes"],
+                "h265_remux_skipped": latest["h265_remux_skipped"],
+            }
+            if latest
+            else None
+        ),
+        "window": {"since": s, "until": u},
+    }
+
+
 def gate_score_percentiles(conn, bucket, since, until):
     """gate 真实打分(visual_change_score / audio_energy_level) × per-device P50/P75/P90/P99。
 
@@ -458,6 +555,7 @@ VIEWS = {
     "error_top_n": error_top_n,
     "summary": summary,
     "stage_percentiles": stage_percentiles,
+    "omni_video_summary": omni_video_summary,
     "drop_series": drop_series,
     "omni_error_series": omni_error_series,
     "gate_score_percentiles": gate_score_percentiles,

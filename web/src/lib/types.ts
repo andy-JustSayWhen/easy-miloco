@@ -459,6 +459,29 @@ export type PerfStageKey =
 
 export type PerfStagePercentiles = Record<PerfStageKey, PerfStageStat>;
 
+/** /api/stats?metric=omni_video_summary 上传给 Omni 的视频构造统计。 */
+export interface PerfOmniVideoSummary {
+  sample_count: number;
+  remux_success_count: number;
+  remux_fallback_count: number;
+  reencode_count: number;
+  h265_remux_skipped_count: number;
+  input_packets_total: number;
+  output_bytes_avg: number;
+  output_bytes_p95: number;
+  output_bytes_max: number;
+  remux_success_rate: number;
+  latest: {
+    trace_id: string;
+    timestamp: number;
+    mode: "remux" | "h265_reencode" | "reencode" | "fallback" | "none";
+    input_packets: number;
+    output_bytes: number;
+    h265_remux_skipped: number;
+  } | null;
+  window: { since: number; until: number };
+}
+
 /** /api/traces 列表项。字段对齐 traces_v 视图。仅保留 UI 用到的列。 */
 export interface PerfTraceRow {
   trace_id: string;
