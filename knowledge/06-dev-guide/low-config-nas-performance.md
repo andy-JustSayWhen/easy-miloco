@@ -91,6 +91,8 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 - FFmpeg motion vectors（运动向量，压缩视频里已有的块运动信息），可用于减少像素级帧差，但需要拿到原始压缩包，当前 SDK 回调只给解码帧，属于实验方向。
 - OpenCV 流式帧差（当前使用的本地图片算法），优先做内存和临时对象优化。
 
+硬件解码的部署前提必须单独确认。2026-07-03 在测试 NAS 上核实：CPU 为 Intel Celeron N5105，内核侧 `/sys/class/drm` 能看到 `renderD128`，PyAV/FFmpeg codec 列表里有 `h264_qsv`、`hevc_qsv` 等 Intel Quick Sync 入口；但 Miloco 当前运行环境里没有 `/dev/dri`。这说明硬件加速方向是可落地的，但部署层尚未把核显渲染设备暴露给 Miloco。仓库已新增 NAS Docker 的可选 `compose.hwaccel.yaml`，`manage.sh` 在宿主存在 `/dev/dri` 时可自动映射到容器；后续真正替换解码链路前，必须先在 NAS 上确认容器内能看到 `/dev/dri/renderD128`。
+
 ## 第二轮：保留 80% 服务质量
 
 第二轮允许改变工作流，目标是用明显更低硬件占用换取可接受的感知质量。
@@ -168,6 +170,7 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 | 第一轮-CPU | ONNX Runtime session 线程自适应：`MILOCO_ORT_NUM_THREADS` 可覆盖；默认在 4 核及以下机器把 intra-op 收敛到 2/1，并把 inter-op 固定为 1，避免 detector 与 ReID 多 session 线程池互相抢占 | `uv run pytest miloco/tests/perception/test_ort_utils.py -q`：3 passed；`uv run pytest miloco/tests/perception/engine/test_get_reid_extractor_fallback.py miloco/tests/perception/engine/identity/test_deep_sort_v12.py::TestDeepSortConfigDC -q`：5 passed；定向 ruff 通过 | NAS 热补丁 `ort_utils.py` 并重启后，临时恢复默认高质量/deep_sort normal 配置做 90 秒采样：18 笔，每 5 秒一次，CPU 峰值 150.0%、平均 143.7%，RSS 峰值 558.8MB、平均 500.1MB；随后恢复 LOW 低配配置、重启，`/health` 为 ok，临时脚本已删除 | 不改变模型、画质、阈值和识别语义，只降低 ONNX 推理并行抢占。短采样显示默认质量一路摄像头 CPU 峰值从上轮 276.6% 降到 150.0%，低于 4 核宿主 200% 预算；仍需更长时间、有人移动和多路摄像头复验 |
 | 第一轮-长采样复验 | 继续使用 ORT 线程收敛后的默认高质量/deep_sort normal 配置，只读采样 5 分钟，不开浏览器、不触发主动查询 | 无代码变更 | 60 笔采样，每 5 秒一次：CPU 峰值 195.0%、平均 151.7%，RSS 峰值 609.2MB、平均 505.6MB；低于 4 核宿主 200% CPU 预算和约 3905.5MB RAM 预算；测试后恢复 LOW 低配配置并重启，`/health` 为 ok，临时脚本已删除 | 5 分钟一路默认质量静态运行仍达标，但 CPU 峰值已贴近预算线，只证明当前桌面摄像头/静态场景；有人移动、规则触发、Omni 上传、更多摄像头仍必须继续复验 |
 | 第一轮-默认 fast 反证 | 把默认高质量配置中的 `deep_sort.mode` 从 `normal` 改为项目默认的 `fast`，`human_reid_skip_windows=4`，其它保持 HIGH/1000ms/3 FPS/4s 窗口，只读采样 5 分钟 | 无代码变更 | 60 笔采样，每 5 秒一次：CPU 峰值仍为 195.0%、平均 150.8%，RSS 峰值 627.1MB、平均 511.6MB；测试后恢复 LOW 低配配置并重启，`/health` 为 ok，临时脚本已删除 | 当前单路静态场景的峰值并没有因 fast 模式下降，说明峰值更可能来自检测、每窗首次 ReID、启动/窗口调度或非静止可复用阶段；不能把“切 fast”当成主要余量来源 |
+| 第一轮-硬件解码准备 | 核实 NAS 硬件视频设备和 PyAV/FFmpeg codec，并给 NAS Docker 增加可选 `/dev/dri` 映射 override | `bash -n nas/docker/manage.sh` 通过 | NAS 只读核实：`/sys/class/drm` 有 `renderD128`，当前运行环境无 `/dev/dri`；PyAV codec 有 `h264_qsv`、`hevc_qsv`，无 `vaapi`；未重启 NAS 容器，未改变运行配置 | Intel Quick Sync 方向具备条件，但当前 Miloco 看不到设备；下一步如要无损降低拉流/解码 CPU，必须先让容器看到 `/dev/dri/renderD128`，再做独立硬解基准和代码接入 |
 
 ## 当前结论（2026-07-03 NAS 实测）
 

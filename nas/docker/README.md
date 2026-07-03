@@ -9,6 +9,21 @@
 - 容器镜像基于 Debian bookworm，满足 Miloco Linux runtime 的 `glibc >= 2.28` 要求。
 - NAS 和摄像头在同一可达局域网。
 
+## 可选硬件视频设备
+
+部分 Intel NAS（例如 N5105/N100 一类机器）带核显视频单元。它可以用于后续硬件解码/硬件编码：硬件解码是把 H.264/H.265 视频包还原成图片帧时少用 CPU；硬件编码是把图片帧压成 MP4 时少用 CPU。
+
+`manage.sh` 默认使用 `EASY_MILOCO_HWACCEL=auto`。如果宿主机存在 `/dev/dri`，启动时会自动叠加 `compose.hwaccel.yaml`，把 `/dev/dri` 暴露进容器；如果宿主机没有这个设备，普通部署不会失败。
+
+也可以手动控制：
+
+```bash
+EASY_MILOCO_HWACCEL=1 ./manage.sh start   # 强制映射 /dev/dri
+EASY_MILOCO_HWACCEL=0 ./manage.sh start   # 禁用映射
+```
+
+注意：映射 `/dev/dri` 只是让容器看见硬件设备，不等于 Miloco 已经启用硬件解码。实际是否走 Intel Quick Sync、VAAPI 或其它后端，还要看运行时库、摄像头码流和后续代码路径。
+
 ## 一键启动
 
 ```bash

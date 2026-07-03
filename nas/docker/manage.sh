@@ -10,6 +10,7 @@ DATA_DIR="$SCRIPT_DIR/data"
 BACKUP_DIR="$SCRIPT_DIR/backups"
 ENV_FILE="$SCRIPT_DIR/.env"
 ENV_EXAMPLE="$SCRIPT_DIR/.env.example"
+HWACCEL_COMPOSE_FILE="$SCRIPT_DIR/compose.hwaccel.yaml"
 DOCKER_CMD=()
 DEFAULT_IMAGE="docker.io/andywu114/easy-miloco-nas:v0.5"
 
@@ -53,10 +54,25 @@ init_docker_cmd() {
 
 compose() {
   init_docker_cmd
+  local extra_args=()
+  local has_file_arg=0
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      -f|--file)
+        has_file_arg=1
+        break
+        ;;
+    esac
+  done
+  if [ "${1:-}" != "version" ] && [ "$has_file_arg" -eq 0 ] && should_enable_hwaccel_compose; then
+    extra_args=(-f compose.yaml -f "$HWACCEL_COMPOSE_FILE")
+  fi
+
   if "${DOCKER_CMD[@]}" compose version >/dev/null 2>&1; then
-    "${DOCKER_CMD[@]}" compose -p "$PROJECT_NAME" "$@"
+    "${DOCKER_CMD[@]}" compose -p "$PROJECT_NAME" "${extra_args[@]}" "$@"
   elif command -v docker-compose >/dev/null 2>&1; then
-    docker-compose -p "$PROJECT_NAME" "$@"
+    docker-compose -p "$PROJECT_NAME" "${extra_args[@]}" "$@"
   else
     die "Docker Compose not found. Install Docker/Container Manager first."
   fi
@@ -100,6 +116,37 @@ env_flag() {
   case "$value" in
     1|true|TRUE|yes|YES|on|ON) return 0 ;;
     *) return 1 ;;
+  esac
+}
+
+env_value_or_default() {
+  local key="$1"
+  local default="$2"
+  local value="${!key:-}"
+  if [ -z "$value" ]; then
+    value="$(env_value "$key" 2>/dev/null || true)"
+  fi
+  printf '%s' "${value:-$default}"
+}
+
+should_enable_hwaccel_compose() {
+  local mode
+  mode="$(env_value_or_default EASY_MILOCO_HWACCEL auto)"
+  case "$mode" in
+    1|true|TRUE|yes|YES|on|ON|force|FORCE)
+      [ -f "$HWACCEL_COMPOSE_FILE" ] || die "compose.hwaccel.yaml missing"
+      return 0
+      ;;
+    0|false|FALSE|no|NO|off|OFF|none|NONE)
+      return 1
+      ;;
+    auto|AUTO|"")
+      [ -e /dev/dri ] && [ -f "$HWACCEL_COMPOSE_FILE" ]
+      return
+      ;;
+    *)
+      die "Invalid EASY_MILOCO_HWACCEL=$mode. Use auto, 1, or 0."
+      ;;
   esac
 }
 
@@ -214,7 +261,11 @@ start() {
 
   if env_flag EASY_MILOCO_BUILD 0; then
     log "Building image on this NAS: $img"
-    compose -f compose.yaml -f compose.build.yaml up -d --build
+    if should_enable_hwaccel_compose; then
+      compose -f compose.yaml -f "$HWACCEL_COMPOSE_FILE" -f compose.build.yaml up -d --build
+    else
+      compose -f compose.yaml -f compose.build.yaml up -d --build
+    fi
   else
     if env_flag EASY_MILOCO_SKIP_PULL 0; then
       log "Skipping image pull; using local image if present: $img"
@@ -257,7 +308,11 @@ update() {
   ensure_env
   backup
   if env_flag EASY_MILOCO_BUILD 0; then
-    compose -f compose.yaml -f compose.build.yaml up -d --build
+    if should_enable_hwaccel_compose; then
+      compose -f compose.yaml -f "$HWACCEL_COMPOSE_FILE" -f compose.build.yaml up -d --build
+    else
+      compose -f compose.yaml -f compose.build.yaml up -d --build
+    fi
   else
     local img
     img="$(image_ref)"
