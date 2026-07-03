@@ -267,6 +267,30 @@ def test_decoder_prefers_qsv_codec_when_pyav_exposes_it(monkeypatch):
         loop.close()
 
 
+def test_decoder_skips_qsv_candidate_without_dri_device(monkeypatch):
+    """PyAV may list QSV even when the container cannot access /dev/dri."""
+    monkeypatch.setattr(
+        "miot.decoder.av.codecs_available",
+        {"h264", "h264_qsv"},
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "miot.decoder.MIoTMediaDecoder._hardware_decoder_device_available",
+        lambda self, name: False if name == "h264_qsv" else True,
+    )
+    loop = asyncio.new_event_loop()
+    try:
+        decoder = MIoTMediaDecoder(
+            frame_interval=1000,
+            video_callback=_noop_video_callback,
+            enable_hw_accel=True,
+            main_loop=loop,
+        )
+        assert decoder._decoder_candidates("h264") == ["h264"]
+    finally:
+        loop.close()
+
+
 def test_decoder_create_falls_back_when_hw_decoder_create_fails(monkeypatch):
     """A mapped codec name is only a candidate; device/runtime failures fall back."""
     calls: list[str] = []
@@ -286,6 +310,10 @@ def test_decoder_create_falls_back_when_hw_decoder_create_fails(monkeypatch):
         return software_decoder
 
     monkeypatch.setattr("miot.decoder.VideoCodecContext.create", fake_create)
+    monkeypatch.setattr(
+        "miot.decoder.MIoTMediaDecoder._hardware_decoder_device_available",
+        lambda self, name: True,
+    )
     loop = asyncio.new_event_loop()
     try:
         decoder = MIoTMediaDecoder(
@@ -325,6 +353,10 @@ def test_decoder_decode_falls_back_when_hw_decoder_fails(monkeypatch):
         return HwDecoder() if name == "h264_qsv" else SoftwareDecoder()
 
     monkeypatch.setattr("miot.decoder.VideoCodecContext.create", fake_create)
+    monkeypatch.setattr(
+        "miot.decoder.MIoTMediaDecoder._hardware_decoder_device_available",
+        lambda self, name: True,
+    )
     loop = asyncio.new_event_loop()
     try:
         decoder = MIoTMediaDecoder(

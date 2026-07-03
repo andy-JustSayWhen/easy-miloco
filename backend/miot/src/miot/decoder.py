@@ -12,6 +12,7 @@ import threading
 import time
 from collections import deque
 from io import BytesIO
+from pathlib import Path
 from typing import Callable, Coroutine, List, Optional
 
 import av
@@ -313,15 +314,26 @@ class MIoTMediaDecoder(threading.Thread):
         except Exception:
             return set()
 
+    def _hardware_decoder_device_available(self, decoder_name: str) -> bool:
+        if decoder_name.endswith("_qsv"):
+            return Path("/dev/dri/renderD128").exists() or Path("/dev/dri/card0").exists()
+        if decoder_name.endswith("_v4l2m2m"):
+            return any(Path("/dev").glob("video*"))
+        return True
+
     def _decoder_candidates(self, codec_name: str) -> list[str]:
         candidates: list[str] = []
         available = self._available_decoder_names()
         if self._enable_hw_accel:
             preferred = self.choose_hw_decoder(codec_name, ())
-            if preferred != codec_name:
+            if preferred != codec_name and self._hardware_decoder_device_available(preferred):
                 candidates.append(preferred)
             for name in _VIDEO_HW_DECODER_CANDIDATES.get(codec_name, ()):
-                if name != preferred and name in available:
+                if (
+                    name != preferred
+                    and name in available
+                    and self._hardware_decoder_device_available(name)
+                ):
                     candidates.append(name)
         candidates.append(codec_name)
         # Preserve order while removing duplicates.

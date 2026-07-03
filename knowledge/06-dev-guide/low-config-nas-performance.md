@@ -97,6 +97,8 @@ SDK 解码器也要配合部署前提。旧代码虽然有 `enable_hw_accel` 参
 
 产品配置链路也已经补齐：新增 `camera.enable_hw_accel`，默认 `true`，并纳入性能配置 API、低配安全模式和 supervisor `env -u` 解锁列表。这个参数不是“强制硬解”，而是“优先尝试硬件解码”：硬件设备或驱动不可用时仍自动使用软件解码，画质和感知语义不变。前端参数面板以中文显示为“硬件视频解码”。
 
+2026-07-03 又做了一次更小的 QSV 探针：根据 `/sys/class/drm/*/dev` 临时创建 `/dev/dri/card0` 和 `/dev/dri/renderD128` 后，用 PyAV 生成 64x64 的 H.264 小片段并分别用 `h264_qsv`、`h264_v4l2m2m`、`h264` 解码。结果是 `h264_qsv` 在 `avcodec_send_packet()` 阶段失败，`h264_v4l2m2m` 在 `avcodec_open2()` 阶段失败，软件 `h264` 成功。这说明当前 NAS 不只是缺 `/dev/dri` 节点，还缺可工作的 QSV/V4L2 解码运行时组合。因此代码进一步改为：没有 `/dev/dri` 时直接跳过 QSV，没有 `/dev/video*` 时跳过 v4l2m2m，避免每次摄像头启动都先走一次注定失败的硬解路径。
+
 ## 第二轮：保留 80% 服务质量
 
 第二轮允许改变工作流，目标是用明显更低硬件占用换取可接受的感知质量。
@@ -177,6 +179,7 @@ SDK 解码器也要配合部署前提。旧代码虽然有 `enable_hw_accel` 参
 | 第一轮-硬件解码准备 | 核实 NAS 硬件视频设备和 PyAV/FFmpeg codec，并给 NAS Docker 增加可选 `/dev/dri` 映射 override | `bash -n nas/docker/manage.sh` 通过 | NAS 只读核实：`/sys/class/drm` 有 `renderD128`，当前运行环境无 `/dev/dri`；PyAV codec 有 `h264_qsv`、`hevc_qsv`，无 `vaapi`；未重启 NAS 容器，未改变运行配置 | Intel Quick Sync 方向具备条件，但当前 Miloco 看不到设备；下一步如要无损降低拉流/解码 CPU，必须先让容器看到 `/dev/dri/renderD128`，再做独立硬解基准和代码接入 |
 | 第一轮-硬件解码接入 | MIoT 解码器在 `enable_hw_accel` 开启时按 PyAV registry 优先尝试 QSV/v4l2m2m 硬件解码器，创建或解码失败自动回退软件解码 | `cd backend && uv run pytest miot/tests/test_units.py -q`：40 passed；`uv run ruff check miot/src/miot/decoder.py miot/tests/test_units.py` 通过 | NAS 热补丁 `miot/decoder.py` 并重启后 `/health` 为 ok；当前环境仍无 `/dev/dri`，所以应回退软件解码；LOW/5000ms/mock 低配短采样 6 笔：CPU 峰值 19.5%，RSS 峰值 368.4MB；清理传输 HTTP 服务、`/tmp/codex-miloco-*` 和热补丁备份文件 | 这是无损接入点：有硬件时才省解码 CPU，没有硬件时自动回退不改变质量。真正证明 QSV 降 CPU 还需要下一轮让容器看到 `/dev/dri/renderD128` 后做 HIGH/1000ms A/B |
 | 第一轮-硬件解码配置链路 | 新增 `camera.enable_hw_accel` 配置、性能页参数、安全模式默认值和 supervisor 环境变量解锁；MIoT client 创建摄像头实例时传入该配置 | `cd backend/miloco && uv run pytest tests/admin/test_performance_tuning.py -q`：13 passed；`cd backend/miot && uv run pytest tests/test_units.py -q`：40 passed；`cd cli && uv run pytest tests/test_commands.py -q`：141 passed；定向 ruff 和 `web pnpm run typecheck` 通过 | NAS 热补丁 settings / performance_tuning / miot client / decoder 后重启，`get_settings().camera.enable_hw_accel=True`；`build_performance_config_payload()` 返回 `camera.enable_hw_accel` 且无 env lock；LOW/5000ms/mock 短采样 6 笔 CPU 峰值 24.8%、RSS 峰值约 356.3MB，`/health` 为 ok，无 `/tmp/codex-miloco-*` | 用户现在可以在性能配置闭环里看到并应用“硬件视频解码”。当前 NAS 仍没有 `/dev/dri` 暴露，所以这轮验证的是配置链路和软件回退稳定性；QSV 实际降 CPU 仍待设备映射后 A/B |
+| 第一轮-硬件解码反证 | 临时创建 `/dev/dri/card0` 和 `/dev/dri/renderD128` 后做 PyAV 小片段硬解探针；随后清理设备节点恢复原状态 | `cd backend/miot && uv run pytest tests/test_units.py -q`：41 passed；`uv run ruff check miot/src/miot/decoder.py miot/tests/test_units.py` 通过 | NAS 探针：`h264_qsv` 创建成功但解码失败 `avcodec_send_packet()`，`h264_v4l2m2m` 打开失败，软件 `h264` 成功；清理 `/dev/dri` 和 `/tmp/codex-*` 后 `/health` 为 ok。热补丁“无设备时跳过硬解候选”后，LOW/5000ms/mock 稳定样本 CPU 约 19.6-21.1%，RSS 约 313MB | 当前 NAS 的硬解路径暂不可用，不应继续把“手工 mknod /dev/dri”当优化方案。下一步要么补齐 Intel Media/QSV 运行时并做离线探针成功后再接入，要么转向其它无损优化点 |
 
 ## 当前结论（2026-07-03 NAS 实测）
 
@@ -211,6 +214,8 @@ SDK 解码器也要配合部署前提。旧代码虽然有 `enable_hw_accel` 参
 硬件解码方向已经补上代码入口：`enable_hw_accel` 开启时会优先尝试 PyAV 暴露的 QSV/v4l2m2m 解码器，失败回退软件解码。当前 NAS 热补丁复验只能证明“无硬件设备暴露时不会破坏现有低配运行”，不能证明“QSV 已降低 CPU”，因为 Miloco 进程仍看不到 `/dev/dri`。下一步必须通过 NAS Docker override 让容器内出现 `/dev/dri/renderD128`，然后用 HIGH/1000ms/deep_sort 配置做硬解开关 A/B。
 
 配置层面，`camera.enable_hw_accel=true` 已进入性能页和低配安全模式。这个开关只表达“允许尝试硬件解码”，不会牺牲画质；硬件失败时仍回退软件解码。2026-07-03 NAS 热补丁后确认配置 payload 中该项存在，且没有被 `MILOCO_CAMERA__ENABLE_HW_ACCEL` 环境变量锁定。
+
+但当前测试 NAS 的 QSV 硬解还不能作为第一轮有效优化项：即使临时补出 `/dev/dri` 设备节点，PyAV 的 `h264_qsv` 仍无法完成实际解码。已清理临时节点并恢复原状态。当前更稳妥的代码行为是“没有设备节点就不尝试硬解”，避免多一次失败和回退开销。若后续继续这条路线，需要先在 NAS/镜像层补齐 Intel Media Driver / QSV 运行时，并以独立 PyAV 小片段探针成功为准，再做 Miloco HIGH/1000ms A/B。
 
 仓库侧已经把这个故障模式固化为产品行为：`GET /admin/performance-config` 会给每个性能参数返回 `env_override`，说明对应的 `MILOCO_*` 环境变量是否正在覆盖 `config.json`；前端会把这类参数标记为“外部锁定”，禁用输入，并提示需要先从 Docker/启动脚本移除变量。`POST /admin/performance-config/apply` 也会拒绝被外部锁定的参数，避免静默写入一个重启后仍不会生效的值。
 
