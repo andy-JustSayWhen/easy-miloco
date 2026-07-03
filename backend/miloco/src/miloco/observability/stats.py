@@ -432,6 +432,12 @@ def omni_video_summary(conn, bucket, since, until):
         sample["raw_keyframes"] = float(
             detail.get("raw_encoded_video_keyframes", 0) or 0
         )
+        sample["raw_window_h264_packets"] = float(
+            detail.get("raw_encoded_video_window_h264_packets", 0) or 0
+        )
+        sample["raw_window_h265_packets"] = float(
+            detail.get("raw_encoded_video_window_h265_packets", 0) or 0
+        )
         if not any(value > 0 for value in sample.values()):
             continue
         sample["trace_id"] = trace_id
@@ -472,6 +478,12 @@ def omni_video_summary(conn, bucket, since, until):
         "input_packets_total": sum(s["input_packets"] for s in samples),
         "raw_window_packets_total": sum(s["raw_window_packets"] for s in samples),
         "raw_keyframes_total": sum(s["raw_keyframes"] for s in samples),
+        "raw_window_h264_packets_total": sum(
+            s["raw_window_h264_packets"] for s in samples
+        ),
+        "raw_window_h265_packets_total": sum(
+            s["raw_window_h265_packets"] for s in samples
+        ),
         "output_bytes_avg": statistics.mean(output_bytes) if output_bytes else 0.0,
         "output_bytes_p95": _percentile(output_bytes, 0.95) if output_bytes else 0.0,
         "output_bytes_max": max(output_bytes) if output_bytes else 0.0,
@@ -486,6 +498,8 @@ def omni_video_summary(conn, bucket, since, until):
                 "input_packets": latest["input_packets"],
                 "raw_window_packets": latest["raw_window_packets"],
                 "raw_keyframes": latest["raw_keyframes"],
+                "raw_window_h264_packets": latest["raw_window_h264_packets"],
+                "raw_window_h265_packets": latest["raw_window_h265_packets"],
                 "output_bytes": latest["output_bytes"],
                 "h265_remux_skipped": latest["h265_remux_skipped"],
             }

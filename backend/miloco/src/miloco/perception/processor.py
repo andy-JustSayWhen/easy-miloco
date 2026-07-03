@@ -118,6 +118,44 @@ def _aggregate_stage_ms(timing: dict) -> tuple[float, float, float]:
     return gate_ms, identity_ms, omni_ms
 
 
+def _build_timing_detail(timing: dict, batch: PerceptionBatch) -> dict[str, float] | None:
+    """Build the per-cycle diagnostic blob persisted in observability traces."""
+
+    timing_detail = {k: v for k, v in timing.items() if not k.startswith("_")}
+    if batch.video_frame_count:
+        timing_detail["decode_video_ms"] = batch.decode_video_avg_ms
+    if batch.audio_frame_count:
+        timing_detail["decode_audio_ms"] = batch.decode_audio_avg_ms
+    if batch.encoded_video_packet_count:
+        timing_detail["encoded_video_packets"] = float(batch.encoded_video_packet_count)
+        timing_detail["encoded_video_payload_bytes"] = float(
+            batch.encoded_video_payload_bytes
+        )
+    if batch.raw_encoded_video_packet_count:
+        timing_detail["raw_encoded_video_packets"] = float(
+            batch.raw_encoded_video_packet_count
+        )
+        timing_detail["raw_encoded_video_keyframes"] = float(
+            batch.raw_encoded_video_keyframe_count
+        )
+        timing_detail["raw_encoded_video_window_packets"] = float(
+            batch.raw_encoded_video_window_packet_count
+        )
+        timing_detail["raw_encoded_video_h264_packets"] = float(
+            batch.raw_encoded_video_h264_packet_count
+        )
+        timing_detail["raw_encoded_video_h265_packets"] = float(
+            batch.raw_encoded_video_h265_packet_count
+        )
+        timing_detail["raw_encoded_video_window_h264_packets"] = float(
+            batch.raw_encoded_video_window_h264_packet_count
+        )
+        timing_detail["raw_encoded_video_window_h265_packets"] = float(
+            batch.raw_encoded_video_window_h265_packet_count
+        )
+    return timing_detail or None
+
+
 class PipelineProcessor:
     """Data flow pipeline: collect_batch → omni inference → log → postprocess."""
 
@@ -416,29 +454,6 @@ class PipelineProcessor:
                         float(batch.end_timestamp - batch.window_first_frame_recv_ms),
                     )
 
-                timing_detail = {k: v for k, v in timing.items() if not k.startswith("_")}
-                if batch.video_frame_count:
-                    timing_detail["decode_video_ms"] = batch.decode_video_avg_ms
-                if batch.audio_frame_count:
-                    timing_detail["decode_audio_ms"] = batch.decode_audio_avg_ms
-                if batch.encoded_video_packet_count:
-                    timing_detail["encoded_video_packets"] = float(
-                        batch.encoded_video_packet_count
-                    )
-                    timing_detail["encoded_video_payload_bytes"] = float(
-                        batch.encoded_video_payload_bytes
-                    )
-                if batch.raw_encoded_video_packet_count:
-                    timing_detail["raw_encoded_video_packets"] = float(
-                        batch.raw_encoded_video_packet_count
-                    )
-                    timing_detail["raw_encoded_video_keyframes"] = float(
-                        batch.raw_encoded_video_keyframe_count
-                    )
-                    timing_detail["raw_encoded_video_window_packets"] = float(
-                        batch.raw_encoded_video_window_packet_count
-                    )
-
                 latency = PerceptionLatency(
                     in_delay_ms=in_delay_s * 1000,
                     out_delay_ms=out_delay_s * 1000,
@@ -456,7 +471,7 @@ class PipelineProcessor:
                     device_count=int(timing.get("_device_count", batch.device_count)),
                     skipped=result.skipped,
                     timestamp=time.time() * 1000,
-                    timing_detail=timing_detail or None,
+                    timing_detail=_build_timing_detail(timing, batch),
                 )
                 self._last_latency = latency
 

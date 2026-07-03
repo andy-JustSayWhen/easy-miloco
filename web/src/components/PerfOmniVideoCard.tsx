@@ -23,7 +23,12 @@ function pct(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
-function modeCopy(mode: OmniVideoMode | undefined) {
+function modeCopy(
+  mode: OmniVideoMode | undefined,
+  latest: PerfOmniVideoSummary["latest"],
+) {
+  const h265Dominant =
+    latest != null && latest.raw_window_h265_packets > latest.raw_window_h264_packets;
   switch (mode) {
     case "remux":
       return {
@@ -41,10 +46,14 @@ function modeCopy(mode: OmniVideoMode | undefined) {
       };
     case "raw_not_remuxable":
       return {
-        title: "原始视频包已拿到，但这次不能安全复用",
-        badge: "缺关键帧",
+        title: h265Dominant
+          ? "原始视频包已拿到，但主要是 H.265"
+          : "原始视频包已拿到，但这次不能安全复用",
+        badge: h265Dominant ? "H.265 兜底" : "缺关键帧",
         tone: "text-warning",
-        desc: "同一次拉流的压缩包存在，但没有选出可从关键帧开始的片段，所以回退到重新压缩。",
+        desc: h265Dominant
+          ? "同一次拉流的压缩包存在，但当前为保证 Omni 回答质量，H.265 不直接转封装，仍回退到重新压缩。"
+          : "同一次拉流的压缩包存在，但没有选出可从关键帧开始的片段，所以回退到重新压缩。",
       };
     case "reencode":
       return {
@@ -100,7 +109,7 @@ export function PerfOmniVideoCard({ state }: Props) {
 
 function OmniVideoContent({ data }: { data: PerfOmniVideoSummary }) {
   const latest = data.latest;
-  const copy = modeCopy(latest?.mode);
+  const copy = modeCopy(latest?.mode, latest);
   const reencodeWarn = data.reencode_count > data.remux_success_count;
 
   return (
@@ -170,6 +179,16 @@ function OmniVideoContent({ data }: { data: PerfOmniVideoSummary }) {
           label="窗口关键帧"
           sub="raw keyframes"
           value={(latest?.raw_keyframes ?? 0).toFixed(0)}
+        />
+        <Info
+          label="H.264 原始包"
+          sub="raw h264 packets"
+          value={(latest?.raw_window_h264_packets ?? 0).toFixed(0)}
+        />
+        <Info
+          label="H.265 原始包"
+          sub="raw h265 packets"
+          value={(latest?.raw_window_h265_packets ?? 0).toFixed(0)}
         />
       </div>
     </div>

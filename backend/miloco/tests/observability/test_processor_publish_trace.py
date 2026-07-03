@@ -460,6 +460,42 @@ def test_aggregate_stage_ms_gate_excludes_submodal_and_pass():
     assert omni == 90.0
 
 
+def test_build_timing_detail_includes_raw_video_codec_diagnostics():
+    from miloco.perception.processor import _build_timing_detail
+
+    batch = PerceptionBatch()
+    batch.video_frame_count = 3
+    batch.decode_video_avg_ms = 12.5
+    batch.encoded_video_packet_count = 7
+    batch.encoded_video_payload_bytes = 2048
+    batch.raw_encoded_video_packet_count = 1200
+    batch.raw_encoded_video_keyframe_count = 2
+    batch.raw_encoded_video_window_packet_count = 300
+    batch.raw_encoded_video_h264_packet_count = 100
+    batch.raw_encoded_video_h265_packet_count = 1100
+    batch.raw_encoded_video_window_h264_packet_count = 0
+    batch.raw_encoded_video_window_h265_packet_count = 300
+
+    detail = _build_timing_detail(
+        {"room/omni_video_reencode": 1, "_internal": 99},
+        batch,
+    )
+
+    assert detail == {
+        "room/omni_video_reencode": 1,
+        "decode_video_ms": 12.5,
+        "encoded_video_packets": 7.0,
+        "encoded_video_payload_bytes": 2048.0,
+        "raw_encoded_video_packets": 1200.0,
+        "raw_encoded_video_keyframes": 2.0,
+        "raw_encoded_video_window_packets": 300.0,
+        "raw_encoded_video_h264_packets": 100.0,
+        "raw_encoded_video_h265_packets": 1100.0,
+        "raw_encoded_video_window_h264_packets": 0.0,
+        "raw_encoded_video_window_h265_packets": 300.0,
+    }
+
+
 def test_aggregate_stage_ms_multi_device():
     """多 device 时 gate 总 = sum(各 device 总),仍排除子模态;omni 取 max(并发墙钟)非 sum。"""
     from miloco.perception.processor import _aggregate_stage_ms

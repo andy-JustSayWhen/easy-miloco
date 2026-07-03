@@ -514,6 +514,35 @@ class TestBuildDeviceDataAggregation:
         assert snapshot is not None
         assert [p.data for p in snapshot.encoded_video] == [b"i", b"p1"]
 
+    def test_build_device_data_counts_raw_encoded_codecs(self):
+        adapter = CameraDeviceAdapter(miot_proxy=object())  # type: ignore[arg-type]
+        state = _make_state()
+        state.encoded_video_packets.extend(
+            [
+                EncodedVideoPacket("h264", b"i", 1_000, 1_000, 1, True),
+                EncodedVideoPacket("h265", b"", 2_000, 2_000, 2, False),
+                EncodedVideoPacket("h265", b"", 2_500, 2_500, 3, False),
+            ]
+        )
+        frame = DecodedVideoFrame(
+            frame=np.zeros((2, 2, 3), dtype=np.uint8),
+            stream_ts=2_000,
+            wall_ms=2_000,
+            unix_ms=2_000,
+        )
+        tracks = {
+            "decoded_video": [self._fragment(frame, frame.stream_ts, frame.wall_ms)],
+            "decoded_audio": [],
+        }
+
+        dd = adapter._build_device_data(state, tracks, 1_500, 2_600)
+
+        assert dd is not None
+        assert dd.raw_encoded_video_h264_packet_count == 1
+        assert dd.raw_encoded_video_h265_packet_count == 2
+        assert dd.raw_encoded_video_window_h264_packet_count == 0
+        assert dd.raw_encoded_video_window_h265_packet_count == 2
+
     def test_peek_window_can_attach_keyframe_aligned_encoded_packets(self):
         adapter = CameraDeviceAdapter(miot_proxy=object())  # type: ignore[arg-type]
         state = _make_state()

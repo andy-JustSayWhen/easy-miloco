@@ -211,9 +211,17 @@ class TestMultiDeviceWeighting:
         cam1.raw_encoded_video_packet_count = 100
         cam1.raw_encoded_video_keyframe_count = 2
         cam1.raw_encoded_video_window_packet_count = 30
+        cam1.raw_encoded_video_h264_packet_count = 90
+        cam1.raw_encoded_video_h265_packet_count = 10
+        cam1.raw_encoded_video_window_h264_packet_count = 25
+        cam1.raw_encoded_video_window_h265_packet_count = 5
         cam2.raw_encoded_video_packet_count = 50
         cam2.raw_encoded_video_keyframe_count = 1
         cam2.raw_encoded_video_window_packet_count = 20
+        cam2.raw_encoded_video_h264_packet_count = 15
+        cam2.raw_encoded_video_h265_packet_count = 35
+        cam2.raw_encoded_video_window_h264_packet_count = 5
+        cam2.raw_encoded_video_window_h265_packet_count = 15
         batch = PerceptionBatch(devices={"cam1": cam1, "cam2": cam2})
 
         _pack_batch_latency_aggregates(batch)
@@ -221,3 +229,7 @@ class TestMultiDeviceWeighting:
         assert batch.raw_encoded_video_packet_count == 150
         assert batch.raw_encoded_video_keyframe_count == 3
         assert batch.raw_encoded_video_window_packet_count == 50
+        assert batch.raw_encoded_video_h264_packet_count == 105
+        assert batch.raw_encoded_video_h265_packet_count == 45
+        assert batch.raw_encoded_video_window_h264_packet_count == 30
+        assert batch.raw_encoded_video_window_h265_packet_count == 20

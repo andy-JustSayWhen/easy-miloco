@@ -664,6 +664,15 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
             if window_start_ms and window_end_ms
             else 0
         )
+        raw_window_packets = (
+            [
+                packet
+                for packet in raw_packets
+                if window_start_ms <= packet.wall_ms < window_end_ms
+            ]
+            if window_start_ms and window_end_ms
+            else []
+        )
         encoded_video = (
             select_keyframe_aligned_packets(
                 raw_packets,
@@ -701,6 +710,18 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
                 1 for packet in raw_packets if packet.is_keyframe
             ),
             raw_encoded_video_window_packet_count=raw_window_packet_count,
+            raw_encoded_video_h264_packet_count=sum(
+                1 for packet in raw_packets if packet.codec == "h264"
+            ),
+            raw_encoded_video_h265_packet_count=sum(
+                1 for packet in raw_packets if packet.codec == "h265"
+            ),
+            raw_encoded_video_window_h264_packet_count=sum(
+                1 for packet in raw_window_packets if packet.codec == "h264"
+            ),
+            raw_encoded_video_window_h265_packet_count=sum(
+                1 for packet in raw_window_packets if packet.codec == "h265"
+            ),
             window_start_ms=window_start_ms,
             window_end_ms=window_end_ms,
             window_start_unix_ms=self._wall_to_unix(state, window_start_ms),

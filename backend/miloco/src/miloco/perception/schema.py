@@ -97,6 +97,10 @@ class DeviceData:
     raw_encoded_video_packet_count: int = 0
     raw_encoded_video_keyframe_count: int = 0
     raw_encoded_video_window_packet_count: int = 0
+    raw_encoded_video_h264_packet_count: int = 0
+    raw_encoded_video_h265_packet_count: int = 0
+    raw_encoded_video_window_h264_packet_count: int = 0
+    raw_encoded_video_window_h265_packet_count: int = 0
 
     # Wall-clock time range of the collection window (ms, monotonic)
     window_start_ms: int = 0
@@ -286,6 +290,10 @@ class PerceptionBatch:
     raw_encoded_video_packet_count: int = 0
     raw_encoded_video_keyframe_count: int = 0
     raw_encoded_video_window_packet_count: int = 0
+    raw_encoded_video_h264_packet_count: int = 0
+    raw_encoded_video_h265_packet_count: int = 0
+    raw_encoded_video_window_h264_packet_count: int = 0
+    raw_encoded_video_window_h265_packet_count: int = 0
     # 窗口内最早一帧到达 host 的 unix ms(端到端起点)。无 recv_unix_ms 数据时为 None。
     window_first_frame_recv_ms: int | None = None
 

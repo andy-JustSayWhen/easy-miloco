@@ -238,6 +238,8 @@ def test_stats_omni_video_summary_aggregates_timing_detail(tmp_path):
                 "卧室/omni_video_cam2_h265_remux_skipped": 1,
                 "raw_encoded_video_window_packets": 300,
                 "raw_encoded_video_keyframes": 0,
+                "raw_encoded_video_window_h264_packets": 0,
+                "raw_encoded_video_window_h265_packets": 300,
             },
         ),
         (
@@ -248,6 +250,8 @@ def test_stats_omni_video_summary_aggregates_timing_detail(tmp_path):
                 "主卧/omni_video_cam3_output_bytes": 1_200_000,
                 "raw_encoded_video_window_packets": 180,
                 "raw_encoded_video_keyframes": 0,
+                "raw_encoded_video_window_h264_packets": 180,
+                "raw_encoded_video_window_h265_packets": 0,
             },
         ),
     ]
@@ -274,11 +278,15 @@ def test_stats_omni_video_summary_aggregates_timing_detail(tmp_path):
     assert d["input_packets_total"] == 420
     assert d["raw_window_packets_total"] == 480
     assert d["raw_keyframes_total"] == 0
+    assert d["raw_window_h264_packets_total"] == 180
+    assert d["raw_window_h265_packets_total"] == 300
     assert d["output_bytes_max"] == 1_500_000
     assert d["remux_success_rate"] == pytest.approx(0.5)
     assert d["latest"]["trace_id"] == "raw-not-remuxable"
     assert d["latest"]["mode"] == "raw_not_remuxable"
     assert d["latest"]["raw_window_packets"] == 180
+    assert d["latest"]["raw_window_h264_packets"] == 180
+    assert d["latest"]["raw_window_h265_packets"] == 0
 
 
 def test_stats_gate_score_percentiles_per_device(tmp_path):

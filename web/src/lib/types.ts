@@ -469,6 +469,8 @@ export interface PerfOmniVideoSummary {
   input_packets_total: number;
   raw_window_packets_total: number;
   raw_keyframes_total: number;
+  raw_window_h264_packets_total: number;
+  raw_window_h265_packets_total: number;
   output_bytes_avg: number;
   output_bytes_p95: number;
   output_bytes_max: number;
@@ -486,6 +488,8 @@ export interface PerfOmniVideoSummary {
     input_packets: number;
     raw_window_packets: number;
     raw_keyframes: number;
+    raw_window_h264_packets: number;
+    raw_window_h265_packets: number;
     output_bytes: number;
     h265_remux_skipped: number;
   } | null;
