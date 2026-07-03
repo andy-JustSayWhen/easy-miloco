@@ -58,6 +58,7 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 - 实时窗口 drain 后只保留最近一个已处理窗口给主动查询复用，避免 `keep` 模式把历史解码帧长期留在 RSS 中。
 - BGR 帧回调现在遵守 `camera.frame_interval`。此前该参数只节流 JPEG 预览输出，不节流感知使用的 BGR 帧，导致 60 秒窗口仍进入 400 多帧。
 - 资源监控的内存明细采样延后并降频。`smaps`（Linux 进程内存区域明细）和 Python heap（Python 对象堆）采样本身会遍历大量进程状态，在低配 NAS 上可能制造启动期或周期性 CPU 尖峰；运行期默认只保留轻量 CPU/RSS 采样，明细内存快照按较低频率采集。
+- ONNX Runtime 推理线程自适应低核机器：4 核及以下默认减少 intra-op（算子内部并行）线程，inter-op（算子之间并行）固定为 1，避免检测模型和 ReID 模型在 NAS 上各自开满线程池互相抢 CPU。模型、输入、阈值和输出不变，只收敛调度并行度。
 - 性能配置 API 会标记被 `MILOCO_*` 环境变量覆盖的参数，前端会显示“外部锁定”并禁用输入；直接调用应用接口时也会拒绝这类参数，避免写入 `config.json` 后重启仍不生效。
 - 性能页阶段耗时区新增小白可读的资源归因饼图和 P95 柱状图：中文主标签说明“拉流解码、画面变化检测、身份识别、云端理解”等阶段，英文原阶段名低权重保留，便于把“谁吃资源”直接视觉化。
 
@@ -164,6 +165,7 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 | 第二轮-主动查询复验 | 同一路低配配置下触发一次主动视觉查询，问题为“现在画面里有什么？请用一句话回答。”，同时每秒采样 CPU/RAM | 无代码变更 | 查询约 29.7 秒返回正常答案；29 笔采样 CPU 峰值/平均均为 12.0%，RSS 峰值/平均均为 336.6MB，无 CPU/RAM 超预算；视频构造统计：`h265_remux_skipped=1`、`remux_success=0`、`remux_fallback=1`、`reencode=1`、`input_packets=886`、`output_bytes=1764429` | 证明在 LOW + 5000ms + 1 FPS + 身份关闭的低配配置下，即使 H.265 因质量保护退回再编码并触发 Omni，当前一路摄像头峰值仍远低于预算；仍不能替代默认质量、多路摄像头或身份识别开启场景 |
 | 第一轮-默认质量反证 | 把 NAS 恢复到默认质量参数做短 A/B：`video_quality=HIGH`、`frame_interval=1000`、`max_cache_images=6`、`window_size=4`、`max_windows=3`、`input.fps=3`、`period_sec=4`、`tracking_service_mode=deep_sort`、`identity_engine.enabled=true` | 无代码变更 | 有效样本 19 笔；CPU 峰值 276.6%、平均 116.5%，超过 4 核宿主 200% 预算；RSS 峰值 466.8MB、平均 432.2MB，低于内存预算；阶段历史 P95：`identity_ms` 约 66088.6ms、`omni_ms` 约 54021.7ms、`decode_ms` 约 1972.5ms、`gate_ms` 约 1409.9ms | 默认高质量 + 深度身份识别在一路桌面摄像头上仍可能冲破 CPU 预算；低配 NAS 的稳定方案不能只靠第一轮无损优化，还必须保留第二轮 LOW/降频/身份降级预设 |
 | 运维固化 | `miloco-cli service start/restart` 生成 supervisor 配置时主动 `env -u` 性能页可调的 `MILOCO_*` 环境变量，避免旧 compose/shell 环境在每次重启后重新覆盖 `config.json` | `cd cli && uv run pytest tests/test_commands.py -q`：141 passed；定向 `ruff check` 通过。全量 backend ruff 仍有 3 个既有测试 import 排序问题，和本改动无关 | NAS 现场先热修 `/data/miloco/supervisord.conf` 为 `env -u MILOCO_CAMERA__FRAME_INTERVAL ... python -m miloco.main` 并重启；随后 `/health` 恢复，进程环境不再含该变量，`/api/admin/performance-config` 显示 `camera.frame_interval=5000` | 解决“低配配置已写入但重启后又变回 1000ms”的反复根因；后续 CLI 管理服务不会再次生成会继承旧性能环境变量的 supervisor 命令 |
+| 第一轮-CPU | ONNX Runtime session 线程自适应：`MILOCO_ORT_NUM_THREADS` 可覆盖；默认在 4 核及以下机器把 intra-op 收敛到 2/1，并把 inter-op 固定为 1，避免 detector 与 ReID 多 session 线程池互相抢占 | `uv run pytest miloco/tests/perception/test_ort_utils.py -q`：3 passed；`uv run pytest miloco/tests/perception/engine/test_get_reid_extractor_fallback.py miloco/tests/perception/engine/identity/test_deep_sort_v12.py::TestDeepSortConfigDC -q`：5 passed；定向 ruff 通过 | NAS 热补丁 `ort_utils.py` 并重启后，临时恢复默认高质量/deep_sort normal 配置做 90 秒采样：18 笔，每 5 秒一次，CPU 峰值 150.0%、平均 143.7%，RSS 峰值 558.8MB、平均 500.1MB；随后恢复 LOW 低配配置、重启，`/health` 为 ok，临时脚本已删除 | 不改变模型、画质、阈值和识别语义，只降低 ONNX 推理并行抢占。短采样显示默认质量一路摄像头 CPU 峰值从上轮 276.6% 降到 150.0%，低于 4 核宿主 200% 预算；仍需更长时间、有人移动和多路摄像头复验 |
 
 ## 当前结论（2026-07-03 NAS 实测）
 
@@ -188,6 +190,8 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 同一轮又触发了一次主动视觉查询，返回答案能正确描述电脑桌面且确认房间内无人。查询期间 29 秒每秒采样 CPU/RAM，CPU 峰值仍为 12.0%，RSS 峰值 336.6MB。视频构造统计显示当前摄像头仍是 H.265 路径：`h265_remux_skipped=1`、`reencode=1`、`input_packets=886`、`output_bytes=1764429`。也就是说，即使为了保证 Omni 正常回答而放弃 H.265 remux、走 BGR 再编码，当前低配配置下主动查询峰值仍远低于预算。
 
 随后做了一轮默认质量反向 A/B：恢复 HIGH 拉流、1000ms 取帧、3 FPS、短窗口和 deep_sort 身份识别后，CPU 峰值升到 276.6%，超过 4 核宿主的 200% 预算；RSS 峰值 466.8MB，内存仍安全。这说明当前真正会把低配 NAS 带崩的是“高频输入 + 深度身份识别 + Omni 长等待窗口叠加”带来的 CPU 峰值，而不是 LLM API Key 是否配置。LLM API 只把理解放到云端；本地仍要完成拉流、解码、Gate、身份识别、视频构造和上传前准备。
+
+针对这个默认质量 CPU 峰值，源码进一步收敛 ONNX Runtime 线程：低核 NAS 上 detector（目标检测模型）和 ReID（人体特征模型）不再各自用 4 个 intra-op 线程再配 4 个 inter-op 线程，而是 4 核机器默认 intra-op=2、inter-op=1。这里的 intra-op 指单个算子内部并行，inter-op 指多个算子之间并行；这只改变线程调度，不改变模型本身和识别输出。NAS 热补丁后，在同样 HIGH/1000ms/3 FPS/deep_sort normal 配置下做 90 秒短采样，CPU 峰值 150.0%、平均 143.7%，RSS 峰值 558.8MB，低于 4 核宿主 200% CPU 预算。测试后已恢复 LOW 低配配置并重启，健康接口恢复 `ok`。
 
 仓库侧已经把这个故障模式固化为产品行为：`GET /admin/performance-config` 会给每个性能参数返回 `env_override`，说明对应的 `MILOCO_*` 环境变量是否正在覆盖 `config.json`；前端会把这类参数标记为“外部锁定”，禁用输入，并提示需要先从 Docker/启动脚本移除变量。`POST /admin/performance-config/apply` 也会拒绝被外部锁定的参数，避免静默写入一个重启后仍不会生效的值。
 

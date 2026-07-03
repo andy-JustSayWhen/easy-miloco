@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import logging
+import os
 import platform
 
 import onnxruntime as ort
 
 _LOGGER = logging.getLogger(__name__)
 
-# Empirically tested: 4 threads gives the best balance of throughput and
-# tail-latency stability on real workloads.  Higher counts look faster on
-# synthetic benchmarks but suffer from scheduling jitter on real frames
-# (e.g. 8 threads: avg 62ms but max 410ms vs 4 threads: avg 48ms, max 58ms).
+_ENV_NUM_THREADS = "MILOCO_ORT_NUM_THREADS"
+
+# Empirically tested on developer machines: 4 intra-op threads gives a good
+# throughput / tail-latency balance for a single model session. Low-end NAS
+# deployments run several ORT sessions next to video decode, so a fixed 4x4
+# policy can oversubscribe 4-core hosts and create CPU peaks. Keep quality
+# unchanged and cap only scheduling parallelism; users can override with
+# MILOCO_ORT_NUM_THREADS when a host has more headroom.
 _DEFAULT_NUM_THREADS = 4
 
 # Apple Silicon 上 CPU EP 默认走 ArmKleidiAI::MlasConv,每次 Conv 推理分配
@@ -70,9 +75,12 @@ def make_session(
         )
 
     opts = ort.SessionOptions()
-    threads = num_threads if num_threads is not None else _DEFAULT_NUM_THREADS
+    threads = num_threads if num_threads is not None else _default_num_threads()
     opts.intra_op_num_threads = threads
-    opts.inter_op_num_threads = threads
+    # Most detector / ReID graphs here execute as a single chain. Keeping
+    # inter-op at 1 avoids each session creating another worker pool on low-core
+    # NAS boxes, without changing model inputs, weights, thresholds, or outputs.
+    opts.inter_op_num_threads = 1
 
     # 兜底层: onnxruntime >= 1.25 加 PR #27136 引入的 opt-out。CoreML 不支持
     # 的算子会 fallback 到 CPU EP,默认仍走 ArmKleidiAI 继续小幅泄漏;另外覆盖
@@ -82,3 +90,21 @@ def make_session(
 
     _LOGGER.info("ORT session providers=%s for %s", providers, model_path)
     return ort.InferenceSession(model_path, sess_options=opts, providers=providers)
+
+
+def _default_num_threads() -> int:
+    raw = os.getenv(_ENV_NUM_THREADS)
+    if raw:
+        try:
+            value = int(raw)
+        except ValueError:
+            _LOGGER.warning("Invalid %s=%r; using adaptive default", _ENV_NUM_THREADS, raw)
+        else:
+            return max(1, value)
+
+    cores = os.cpu_count() or _DEFAULT_NUM_THREADS
+    if cores <= 2:
+        return 1
+    if cores <= 4:
+        return 2
+    return _DEFAULT_NUM_THREADS
