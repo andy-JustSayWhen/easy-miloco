@@ -859,16 +859,21 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
                 ts = int(getattr(frame_data, "timestamp", 0) or 0)
                 wall_ms, _unix_ms = self._calibrate(state, ts)
                 frame_type = getattr(frame_data, "frame_type", None)
-                data = bytes(getattr(frame_data, "data", b""))
-                payload = data if codec in _REMUX_PAYLOAD_CODECS else b""
+                is_keyframe = frame_type == MIoTCameraFrameType.FRAME_I
+                if codec in _REMUX_PAYLOAD_CODECS:
+                    payload = bytes(getattr(frame_data, "data", b""))
+                    is_keyframe = is_keyframe or encoded_video_packet_contains_keyframe(
+                        codec, payload
+                    )
+                else:
+                    payload = b""
                 packet = EncodedVideoPacket(
                     codec=codec,
                     data=payload,
                     stream_ts=ts,
                     wall_ms=wall_ms,
                     sequence=int(getattr(frame_data, "sequence", 0) or 0),
-                    is_keyframe=frame_type == MIoTCameraFrameType.FRAME_I
-                    or encoded_video_packet_contains_keyframe(codec, data),
+                    is_keyframe=is_keyframe,
                 )
                 state.encoded_video_packets.append(packet)
 

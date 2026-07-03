@@ -303,6 +303,30 @@ class TestCallbackIntegration:
         assert encoded.sequence == 42
         assert encoded.is_keyframe is True
 
+    def test_raw_packet_callback_keeps_h264_nal_keyframe_detection(self, monkeypatch):
+        adapter, state = self._make_adapter_with_device()
+        monkeypatch.setattr(
+            "miloco.perception.collect.camera_adapter._monotonic_ms",
+            lambda: 5_000,
+        )
+
+        cb = adapter._make_raw_packet_callback("cam1")
+        packet = SimpleNamespace(
+            codec_id=MIoTCameraCodec.VIDEO_H264,
+            data=b"\x00\x00\x01\x65\x88\x84\x21",
+            timestamp=4_800,
+            sequence=42,
+            frame_type=MIoTCameraFrameType.FRAME_P,
+        )
+
+        asyncio.run(cb(packet))
+
+        assert len(state.encoded_video_packets) == 1
+        encoded = state.encoded_video_packets[0]
+        assert encoded.codec == "h264"
+        assert encoded.data == b"\x00\x00\x01\x65\x88\x84\x21"
+        assert encoded.is_keyframe is True
+
     def test_raw_packet_callback_strips_h265_payload_but_keeps_metadata(self, monkeypatch):
         adapter, state = self._make_adapter_with_device()
         monkeypatch.setattr(
@@ -329,6 +353,30 @@ class TestCallbackIntegration:
         assert encoded.wall_ms == 5_000
         assert encoded.sequence == 42
         assert encoded.is_keyframe is True
+
+    def test_raw_packet_callback_does_not_scan_h265_payload(self, monkeypatch):
+        adapter, state = self._make_adapter_with_device()
+        monkeypatch.setattr(
+            "miloco.perception.collect.camera_adapter._monotonic_ms",
+            lambda: 5_000,
+        )
+
+        cb = adapter._make_raw_packet_callback("cam1")
+        packet = SimpleNamespace(
+            codec_id=MIoTCameraCodec.VIDEO_H265,
+            data=b"\x00\x00\x01\x26\x01\xaf",
+            timestamp=4_800,
+            sequence=42,
+            frame_type=MIoTCameraFrameType.FRAME_P,
+        )
+
+        asyncio.run(cb(packet))
+
+        assert len(state.encoded_video_packets) == 1
+        encoded = state.encoded_video_packets[0]
+        assert encoded.codec == "h265"
+        assert encoded.data == b""
+        assert encoded.is_keyframe is False
 
 
 class TestBuildDeviceDataAggregation:
