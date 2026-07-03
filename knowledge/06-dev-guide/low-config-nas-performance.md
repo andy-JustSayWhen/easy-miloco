@@ -93,6 +93,13 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 - FFmpeg motion vectors（运动向量，压缩视频里已有的块运动信息），可用于减少像素级帧差，但需要拿到原始压缩包，当前 SDK 回调只给解码帧，属于实验方向。
 - OpenCV 流式帧差（当前使用的本地图片算法），优先做内存和临时对象优化。
 
+外部来源和落地判断：
+
+- [FFmpeg 硬件加速说明](https://trac.ffmpeg.org/wiki/HWAccelIntro)覆盖 VAAPI/QSV 等后端，适合作为 NAS 上“软件解码换硬解”的第一轮无损方向；Miloco 当前用 PyAV 包 FFmpeg，因此应优先验证 PyAV codec 是否可用，而不是只看系统 `ffmpeg` 命令。
+- [FFmpeg streamcopy 文档](https://ffmpeg.org/ffmpeg.html#Streamcopy)说明 streamcopy 是直接拷贝压缩流，不经过解码/滤镜/编码；这正对应 Miloco 的 remux 路径，适合复用摄像头 H.264 原始包，避免上传 Omni 前再次压缩。
+- [Intel VPL 文档](https://intel.github.io/libvpl/latest/index.html)覆盖硬件解码、编码和视频处理，但引入成本比 PyAV 直接用 FFmpeg QSV 更高；当前只作为后续镜像/runtime 层补齐后的备选，不作为先行改造。
+- [OpenCV cvtColor 文档](https://docs.opencv.org/4.x/d8/d01/group__imgproc__color__conversions.html)确认当前 BGR/颜色转换语义；Miloco 当前 gate 只需要 448 灰度差分，优先收益来自“少帧、少拷贝、流式处理”，不是先引入更复杂的 GPU 图像管线。
+
 硬件解码的部署前提必须单独确认。2026-07-03 在测试 NAS 上核实：CPU 为 Intel Celeron N5105，内核侧 `/sys/class/drm` 能看到 `renderD128`，PyAV/FFmpeg codec 列表里有 `h264_qsv`、`hevc_qsv` 等 Intel Quick Sync 入口；但 Miloco 当前运行环境里没有 `/dev/dri`。这说明硬件加速方向是可落地的，但部署层尚未把核显渲染设备暴露给 Miloco。仓库已新增 NAS Docker 的可选 `compose.hwaccel.yaml`，`manage.sh` 在宿主存在 `/dev/dri` 时可自动映射到容器；后续真正替换解码链路前，必须先在 NAS 上确认容器内能看到 `/dev/dri/renderD128`。
 
 SDK 解码器也要配合部署前提。旧代码虽然有 `enable_hw_accel` 参数，但实际创建解码器时仍固定使用 `h264` / `hevc` 软件解码；旧的 `detect_hwaccel()` 还依赖系统 `ffmpeg -hwaccels`，而测试 NAS 当前没有 `ffmpeg` 命令。当前改为读取 PyAV 自身的 codec registry：启用硬件加速时优先尝试 `h264_qsv` / `hevc_qsv`，其次尝试 `v4l2m2m`，创建失败或解码中失败都自动回退到软件解码。这样硬件存在时可以省 CPU，硬件不可用时质量和行为不变。
