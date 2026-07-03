@@ -29,9 +29,11 @@ flowchart LR
 
 当前已补上原始压缩视频包旁路：采集摄像头时，Miloco 可以同时保存 H.264/H.265 原始视频包和解码后的 BGR 图片帧。BGR 帧仍服务 Gate、Identity；原始视频包先随窗口带到 `DeviceSnapshot.encoded_video`，并记录 `encoded_video_packets` 计数。
 
-Omni 上传路径已接入 remux：当本窗没有音频要合入视频，且原始 H.264/H.265 包可被 PyAV/FFmpeg 解析时，Miloco 会优先把原始包 streamcopy/remux 成 MP4 上传。这个过程不解码、不缩放、不重新压缩画面，所以目标是降低 Omni 上传前的本地 CPU 峰值。若 remux 失败、缺 I 帧、包格式不被解析，或需要把音频合入视频，则自动回退到旧的 BGR 图片帧重新编码 MP4，保证质量不打折。
+Omni 上传路径已接入 remux：当本窗没有音频要合入视频，且原始 H.264 包可被 PyAV/FFmpeg 解析时，Miloco 会优先把原始包 streamcopy/remux 成 MP4 上传。这个过程不解码、不缩放、不重新压缩画面，所以目标是降低 Omni 上传前的本地 CPU 峰值。若 remux 失败、缺 I 帧、包格式不被解析，或需要把音频合入视频，则自动回退到旧的 BGR 图片帧重新编码 MP4，保证质量不打折。当前代码会主动跳过 H.265 remux，因为前序验证发现 H.265 上传给 Omni 存在空回答风险；H.265 摄像头因此会保留原始包用于诊断，但上传前仍走 BGR 重新编码。
 
 二次编码的根因可以这样理解：摄像头送来的本来就是压缩视频包，解码是把它拆成图片给本地算法看；如果原始压缩包没有保留，云端要视频时只能把图片再压回视频。保留原始压缩包后，理想路径是只做 remux（重封装，只换 MP4 容器，不重新压缩画面），CPU 压力会明显低于重新编码。
+
+2026-07-03 在 NAS 当前一路桌面摄像头上复查 trace：最新 Omni 窗口能看到 `encoded_video_packets=1233`、`raw_encoded_video_window_packets=1200`、`raw_encoded_video_keyframes=26`，说明同一次拉流拿到的原始压缩包已经随窗口进入上传链路；但同一条 trace 也显示 `remux_success=0`、`remux_fallback=1`、`reencode=1`、`h265_remux_skipped=1`。结论是：当前不是“Omni 又向摄像头拉了一次流”，而是“已经拿到的 H.265 原始包因兼容性保护不用来 remux，改用同一窗口里的 BGR 帧重新编码成 MP4 上传”。
 
 ## 当前压力判断
 
