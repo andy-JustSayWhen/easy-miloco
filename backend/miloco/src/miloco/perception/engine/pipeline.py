@@ -140,6 +140,18 @@ def _omni_video_encode_stats_dict(packet: IdentityPacket) -> dict[str, float] | 
     }
 
 
+def _should_retry_query_without_encoded_video(
+    packets: list[IdentityPacket], stats: dict[str, float] | None, answer: str
+) -> bool:
+    """Retry only the known-risk path: H.265 remux produced an empty answer."""
+    if answer or not packets or not stats:
+        return False
+    if stats.get("remux_success", 0.0) != 1.0 or stats.get("reencode", 0.0) != 0.0:
+        return False
+    encoded = packets[0].encoded_video
+    return bool(encoded and encoded[0].codec == "h265")
+
+
 def _reraise_first(results: list[Any]) -> None:
     """``gather(return_exceptions=True)`` 后按输入顺序复抛第一个异常（保留原对象，
     OmniError 的 ``partial_timing`` 随之上抛），与串行"首个出错即整轮失败"语义一致。"""
@@ -889,25 +901,42 @@ async def run_query_pipeline(
         if not room_identity_packets:
             return None
 
-        # Build query prompt from IdentityPackets and call Omni
-        payload = build_query_prompt(
-            identity_packets=room_identity_packets,
-            query=query,
-            last_caption=captions.get(room_name),
-        )
-        video_encode_stats = _omni_video_encode_stats_dict(room_identity_packets[0])
-        try:
-            raw_response = await call_omni(
-                payload, resolve_live_omni_config(config.omni), type="on_demand"
+        async def _call_query(
+            packets: list[IdentityPacket],
+        ) -> tuple[str, dict[str, float] | None]:
+            payload = build_query_prompt(
+                identity_packets=packets,
+                query=query,
+                last_caption=captions.get(room_name),
             )
-        except OmniError as e:
-            if video_encode_stats:
-                e.video_encode_stats = {
-                    f"{room_name}/{key}": float(value)
-                    for key, value in video_encode_stats.items()
-                }
-            raise
-        answer = parse_query_response(raw_response)
+            video_stats = _omni_video_encode_stats_dict(packets[0])
+            try:
+                raw_response = await call_omni(
+                    payload, resolve_live_omni_config(config.omni), type="on_demand"
+                )
+            except OmniError as e:
+                if video_stats:
+                    e.video_encode_stats = {
+                        f"{room_name}/{key}": float(value)
+                        for key, value in video_stats.items()
+                    }
+                raise
+            return parse_query_response(raw_response), video_stats
+
+        answer, video_encode_stats = await _call_query(room_identity_packets)
+        if _should_retry_query_without_encoded_video(
+            room_identity_packets, video_encode_stats, answer
+        ):
+            logger.info(
+                "event=omni_query_h265_remux_empty_retry room=%s packets=%d",
+                room_name,
+                len(room_identity_packets[0].encoded_video),
+            )
+            retry_packets = [
+                replace(packet, encoded_video=[], video_encode_stats=None)
+                for packet in room_identity_packets
+            ]
+            answer, video_encode_stats = await _call_query(retry_packets)
         if not answer:
             return None
         return room_name, QueryOutput(

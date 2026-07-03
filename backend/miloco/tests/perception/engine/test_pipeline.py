@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import numpy as np
 import pytest
+from miloco.perception.encoded_video import EncodedVideoPacket
 from miloco.perception.engine.api import PerceptionEngine
 from miloco.perception.engine.config import PerceptionConfig
 from miloco.perception.engine.gate.visual_gate import _preprocess
@@ -627,6 +628,79 @@ async def test_query_omni_error_preserves_video_encode_stats():
         "study-room/input_packets": 2.0,
         "study-room/output_bytes": 1234.0,
         "study-room/h265_remux_skipped": 0.0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_query_empty_h265_remux_retries_with_reencode():
+    from miloco.perception.engine.pipeline import run_query_pipeline
+    from miloco.perception.engine.types import OmniVideoEncodeStats
+
+    frames = [_solid(100, 100, 100), _solid(255, 255, 255)]
+    snap = _make_snapshot("study-room", "cam-study", frames)
+    snap.encoded_video = [
+        EncodedVideoPacket(
+            codec="h265",
+            data=b"packet",
+            stream_ts=1,
+            wall_ms=1000,
+            is_keyframe=True,
+        )
+    ]
+    batch = BatchedSnapshot(snapshots=[snap])
+
+    config = PerceptionConfig()
+    config.omni.api_key = "test-key"
+    tracking = MockTrackingService(create_default_mock_response())
+    prompt_calls = 0
+
+    def mark_video_stats(identity_packets, *args, **kwargs):
+        nonlocal prompt_calls
+        prompt_calls += 1
+        if prompt_calls == 1:
+            assert identity_packets[0].encoded_video[0].codec == "h265"
+            identity_packets[0].video_encode_stats = OmniVideoEncodeStats(
+                remux_success=1,
+                input_packets=1,
+                output_bytes=111,
+            )
+        else:
+            assert identity_packets[0].encoded_video == []
+            identity_packets[0].video_encode_stats = OmniVideoEncodeStats(
+                reencode=1,
+                output_bytes=222,
+            )
+        return {"system_prompt": "s", "user_content": "u", "video_base64": "v"}
+
+    async def ok_call_omni(*args, **kwargs):
+        return {"mock": "resp"}
+
+    with patch(
+        "miloco.perception.engine.omni.prompt_builder.build_query_prompt",
+        side_effect=mark_video_stats,
+    ), patch(
+        "miloco.perception.engine.omni.omni_client.call_omni",
+        side_effect=ok_call_omni,
+    ), patch(
+        "miloco.perception.engine.omni.response_parser.parse_query_response",
+        side_effect=["", "有人在"],
+    ):
+        results = await run_query_pipeline(
+            batch,
+            "现在有人吗",
+            config,
+            get_tracking_service=lambda did, room_name: tracking,
+        )
+
+    assert prompt_calls == 2
+    assert results["study-room"].answer == "有人在"
+    assert results["study-room"].video_encode_stats == {
+        "remux_success": 0.0,
+        "remux_fallback": 0.0,
+        "reencode": 1.0,
+        "input_packets": 0.0,
+        "output_bytes": 222.0,
+        "h265_remux_skipped": 0.0,
     }
 
 
