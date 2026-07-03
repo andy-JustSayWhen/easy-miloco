@@ -378,6 +378,41 @@ class TestCallbackIntegration:
         assert encoded.data == b""
         assert encoded.is_keyframe is False
 
+    def test_raw_packet_callback_keeps_h265_payload_when_experiment_enabled(
+        self, monkeypatch
+    ):
+        adapter, state = self._make_adapter_with_device()
+        monkeypatch.setattr(
+            "miloco.perception.collect.camera_adapter._monotonic_ms",
+            lambda: 5_000,
+        )
+        settings = SimpleNamespace(
+            perception=SimpleNamespace(
+                engine={"omni": {"allow_h265_remux": True}}
+            )
+        )
+        monkeypatch.setattr(
+            "miloco.perception.collect.camera_adapter.get_settings",
+            lambda: settings,
+        )
+
+        cb = adapter._make_raw_packet_callback("cam1")
+        packet = SimpleNamespace(
+            codec_id=MIoTCameraCodec.VIDEO_H265,
+            data=b"\x00\x00\x01\x26\x01\xaf",
+            timestamp=4_800,
+            sequence=42,
+            frame_type=MIoTCameraFrameType.FRAME_P,
+        )
+
+        asyncio.run(cb(packet))
+
+        assert len(state.encoded_video_packets) == 1
+        encoded = state.encoded_video_packets[0]
+        assert encoded.codec == "h265"
+        assert encoded.data == b"\x00\x00\x01\x26\x01\xaf"
+        assert encoded.is_keyframe is True
+
 
 class TestBuildDeviceDataAggregation:
     """_build_device_data packs per-window decode aggregates.

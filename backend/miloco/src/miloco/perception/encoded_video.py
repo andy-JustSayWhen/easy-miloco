@@ -171,6 +171,7 @@ def remux_encoded_video_to_mp4(
     packets: list[EncodedVideoPacket],
     *,
     fps: int,
+    allow_h265: bool = False,
 ) -> bytes | None:
     """Remux raw H.264/H.265 packets into an MP4 container without re-encoding.
 
@@ -186,7 +187,7 @@ def remux_encoded_video_to_mp4(
     codec = packets[0].codec
     if any(p.codec != codec or not p.data for p in packets):
         return None
-    if codec == "h265":
+    if codec == "h265" and not allow_h265:
         logger.info(
             "event=encoded_video_remux_skip codec=h265 packets=%d reason=omni_empty_answer_risk",
             len(packets),

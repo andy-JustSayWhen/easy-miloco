@@ -26,6 +26,7 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
+from miloco.config import get_settings
 from miloco.perception.encoded_video import remux_encoded_video_to_mp4
 from miloco.perception.engine.identity.gallery_composite import (
     build_body_composite_png,
@@ -1121,6 +1122,17 @@ def _batch_video_has_speech(packets: list[IdentityPacket]) -> bool:
     return False
 
 
+def _allow_h265_remux() -> bool:
+    try:
+        engine = get_settings().perception.engine
+        omni_cfg = engine.get("omni") if isinstance(engine, dict) else None
+        if not isinstance(omni_cfg, dict):
+            return False
+        return bool(omni_cfg.get("allow_h265_remux", False))
+    except Exception:
+        return False
+
+
 def _encode_video(identity_packet: IdentityPacket) -> str | None:
     """Encode all frames + audio into mp4 video, return base64.
 
@@ -1141,9 +1153,11 @@ def _encode_video(identity_packet: IdentityPacket) -> str | None:
         else np.empty(0, dtype=np.int16)
     )
     if audio.size == 0 and identity_packet.encoded_video:
+        allow_h265_remux = _allow_h265_remux()
         mp4_bytes = remux_encoded_video_to_mp4(
             identity_packet.encoded_video,
             fps=identity_packet.frame_info.fps,
+            allow_h265=allow_h265_remux,
         )
         if mp4_bytes:
             identity_packet.video_encode_stats = OmniVideoEncodeStats(
@@ -1164,7 +1178,10 @@ def _encode_video(identity_packet: IdentityPacket) -> str | None:
         identity_packet.video_encode_stats = OmniVideoEncodeStats(
             remux_fallback=1,
             input_packets=len(identity_packet.encoded_video),
-            h265_remux_skipped=int(identity_packet.encoded_video[0].codec == "h265"),
+            h265_remux_skipped=int(
+                identity_packet.encoded_video[0].codec == "h265"
+                and not allow_h265_remux
+            ),
         )
         logger.info(
             "event=omni_video_remux_fallback packets=%d fps=%d",

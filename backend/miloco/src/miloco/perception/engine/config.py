@@ -288,6 +288,9 @@ class OmniConfig:
     top_p: float = 0.95
     timeout: float = 30.0
     stream: bool = False
+    # Experimental: keep and remux H.265 camera packets directly for Omni.
+    # Default off because prior NAS tests showed empty-answer risk.
+    allow_h265_remux: bool = False
 
 
 @dataclass

@@ -1,6 +1,7 @@
 """Tests for Omni Layer — Prompt Builder."""
 
 import base64
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
@@ -160,7 +161,9 @@ class TestBuildPrompt:
         ):
             encoded = _encode_video(ep)
 
-        remux.assert_called_once_with(ep.encoded_video, fps=ep.frame_info.fps)
+        remux.assert_called_once_with(
+            ep.encoded_video, fps=ep.frame_info.fps, allow_h265=False
+        )
         encode_mp4.assert_not_called()
         assert encoded == base64.b64encode(b"mp4-bytes").decode()
         assert ep.video_encode_stats is not None
@@ -246,6 +249,57 @@ class TestBuildPrompt:
         assert ep.video_encode_stats.reencode == 1
         assert ep.video_encode_stats.input_packets == 1
         assert ep.video_encode_stats.h265_remux_skipped == 1
+
+    def test_encode_video_h265_experiment_does_not_mark_skip_when_allowed(
+        self, monkeypatch
+    ):
+        ep = _mock_edge_packet()
+        ep.trigger = GateTrigger(
+            visual_changed=True,
+            visual_change_score=1.0,
+            audio_active=False,
+            audio_energy_level=0.0,
+        )
+        ep.encoded_video = [
+            EncodedVideoPacket(
+                codec="h265",
+                data=b"raw-h265",
+                stream_ts=0,
+                wall_ms=0,
+                is_keyframe=True,
+            )
+        ]
+        settings = SimpleNamespace(
+            perception=SimpleNamespace(
+                engine={"omni": {"allow_h265_remux": True}}
+            )
+        )
+        monkeypatch.setattr(
+            "miloco.perception.engine.omni.prompt_builder.get_settings",
+            lambda: settings,
+        )
+
+        with (
+            patch(
+                "miloco.perception.engine.omni.prompt_builder.remux_encoded_video_to_mp4",
+                return_value=None,
+            ) as remux,
+            patch(
+                "miloco.perception.engine.omni.prompt_builder._encode_video_mp4",
+                return_value="fallback",
+            ),
+        ):
+            encoded = _encode_video(ep)
+
+        assert encoded == "fallback"
+        remux.assert_called_once_with(
+            ep.encoded_video, fps=ep.frame_info.fps, allow_h265=True
+        )
+        assert ep.video_encode_stats is not None
+        assert ep.video_encode_stats.remux_fallback == 1
+        assert ep.video_encode_stats.reencode == 1
+        assert ep.video_encode_stats.input_packets == 1
+        assert ep.video_encode_stats.h265_remux_skipped == 0
 
     def test_encode_video_records_reencode_when_no_raw_packets(self):
         ep = _mock_edge_packet()

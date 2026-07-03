@@ -80,6 +80,24 @@ DEFAULT_VIDEO_CHANNEL = 0
 DEFAULT_AUDIO_CHANNEL = 0
 
 
+def _allow_h265_remux() -> bool:
+    """Experimental guard for H.265 streamcopy into Omni payloads."""
+
+    try:
+        omni_cfg = CameraDeviceAdapter._nested_dict(
+            get_settings().perception.engine, "omni"
+        )
+        return bool(omni_cfg.get("allow_h265_remux", False))
+    except Exception:
+        return False
+
+
+def _remux_payload_codecs() -> frozenset[str]:
+    if _allow_h265_remux():
+        return frozenset({"h264", "h265"})
+    return _REMUX_PAYLOAD_CODECS
+
+
 @dataclass
 class _CameraDeviceState:
     """Per-camera stream state."""
@@ -881,7 +899,7 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
                 wall_ms, _unix_ms = self._calibrate(state, ts)
                 frame_type = getattr(frame_data, "frame_type", None)
                 is_keyframe = frame_type == MIoTCameraFrameType.FRAME_I
-                if codec in _REMUX_PAYLOAD_CODECS:
+                if codec in _remux_payload_codecs():
                     payload = bytes(getattr(frame_data, "data", b""))
                     is_keyframe = is_keyframe or encoded_video_packet_contains_keyframe(
                         codec, payload
