@@ -155,6 +155,7 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 | 第一轮-观测 | 视频构造统计增加 `h265_remux_skipped` 数字字段，解释 H.265 为什么仍走再编码 | `pytest backend/miloco/tests/perception/engine/omni/test_prompt_builder.py backend/miloco/tests/perception/engine/test_pipeline.py backend/miloco/tests/perception/test_encoded_video.py -q`：172 passed；ruff 通过 | NAS 主动查询：`h265_remux_skipped=1`、`reencode=1`、`answer='没有。'`；CPU 约 113.5%、RSS 约 513.2MB | 性能页/Agent 诊断可直接说明“为保证 Omni 正常回答，H.265 当前跳过 remux”，避免用户只看到再编码和 CPU 波动却不知道原因 |
 | 第一轮-观测 | H.265 remux skip 后做 6 分钟只读稳态采样，不额外触发浏览器、主动查询或 Omni 调用 | NAS 实机采样 13 次，每 30 秒一次 | 一路桌面摄像头：CPU 峰值 126.5%、平均 115.9%；RSS 峰值 719.9MB、平均 634.0MB；raw_video 平均 15.12fps、decode_video 平均 0.97fps；RTF 峰值 0.52 | 静态运行期已低于 4 核宿主 200% CPU 预算和约 3.8GB RAM 预算；后续峰值风险主要来自触发 Omni 上传时 H.265 退回 BGR 再编码，而不是常规拉流空转 |
 | 第二轮-拉流质量 | 将 NAS 运行配置显式设为 `camera.video_quality=LOW`，从源头拉低清流，降低解码、缩图、Gate 和再编码输入压力 | `uv run pytest miloco/tests/admin/test_performance_tuning.py miloco/tests/test_miot_filter_and_cameras.py -q`：79 passed；`uv run ruff check ...` 通过 | NAS 热补丁后 `/api/admin/performance-config` 显示 `camera.video_quality=LOW`；一路桌面摄像头 6 分钟只读采样：CPU 峰值 18.5%、平均 14.7%；RSS 峰值 429.5MB、平均 424.3MB；raw_video 平均 15.08fps、decode_video 平均 0.97fps。主动问答两次均正常回答 `没有。`，H.265 仍走 `h265_remux_skipped=1`、`reencode=1`；第二次问答期间容器内 1 秒 `ps` 采样 Miloco 进程 CPU 峰值约 17.5%、RSS 峰值约 447.6MB | LOW 会牺牲画面细节，属于第二轮“服务质量约 80%”方案；但对单路低配 NAS 的运行期和主动问答峰值非常有效，当前远低于 4 核宿主 200% CPU / 约 3.8GB RAM 预算 |
+| 第二轮-配置生效 | 清理 NAS compose 里的 `MILOCO_CAMERA__FRAME_INTERVAL=1000` 覆盖，并让 supervisor 启动后端时 `env -u MILOCO_CAMERA__FRAME_INTERVAL`，使 `config.json` / 性能页应用值成为真实运行值 | NAS 运行期验证：`/api/admin/performance-config` 从 `camera.frame_interval=1000` 变为 `5000`；`/api/monitor/nodes` 的 `decode_video` 从约 0.97fps 降为 0.20fps | 3 分钟短采样：CPU 峰值 16.6%、平均 13.6%；RSS 峰值 327.4MB、平均 323.9MB；raw_video 平均 15.12fps、decode_video 平均 0.20fps；RTF 峰值 0.422 | 修复了“配置写了但运行值不变”的真实根因；后续前端应用 `camera.frame_interval` 才会真正影响拉流解码后的取帧频率 |
 
 ## 当前结论（2026-07-03 NAS 实测）
 
@@ -170,7 +171,9 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 
 当前结论：单路桌面摄像头的静态运行期 CPU/RAM 已达成低配 NAS 预算，且使用默认 1000ms 采样间隔，不依赖 5000ms 降频。H.265 remux skip 后的 6 分钟只读复验中，CPU 峰值 126.5%、平均 115.9%，RSS 峰值 719.9MB、平均 634.0MB。仍未完成全目标，因为还需要在更长时段、更多摄像头、有人移动、规则触发、Identity 实际进入，以及 H.265 云端上传退回再编码的场景下复验最高峰值。
 
-第二轮低清拉流复验显示，`camera.video_quality=LOW` 是当前最直接的降载手段：同样一路桌面摄像头、`MILOCO_CAMERA__FRAME_INTERVAL=1000` 仍由 compose 环境变量覆盖的前提下，6 分钟只读采样 CPU 峰值只有 18.5%、平均 14.7%，RSS 峰值 429.5MB。主动视觉问答仍因 H.265 兼容性走再编码，但回答正常，容器内 1 秒进程采样 CPU 峰值约 17.5%、RSS 峰值约 447.6MB。注意：当前 NAS 的 `/data/docker-compose.yaml` 仍设置 `MILOCO_CAMERA__FRAME_INTERVAL=1000`，它会覆盖 `config.json` 里的 `camera.frame_interval=5000`，所以后续若希望前端“应用参数”真正改变取帧间隔，需要移除或同步更新 compose 环境变量。
+第二轮低清拉流复验显示，`camera.video_quality=LOW` 是当前最直接的降载手段：同样一路桌面摄像头、`MILOCO_CAMERA__FRAME_INTERVAL=1000` 仍由 compose 环境变量覆盖的前提下，6 分钟只读采样 CPU 峰值只有 18.5%、平均 14.7%，RSS 峰值 429.5MB。主动视觉问答仍因 H.265 兼容性走再编码，但回答正常，容器内 1 秒进程采样 CPU 峰值约 17.5%、RSS 峰值约 447.6MB。
+
+随后清理 NAS 当前 `/data/docker-compose.yaml` 中的 `MILOCO_CAMERA__FRAME_INTERVAL=1000`，并把 `/data/miloco/supervisord.conf` 的后端启动命令改为 `env -u MILOCO_CAMERA__FRAME_INTERVAL ... python -m miloco.main`，避免当前容器父环境继续覆盖用户配置。重启后 `/api/admin/performance-config` 显示 `camera.frame_interval=5000`，`decode_video` 降到 0.20fps。3 分钟短采样 CPU 峰值 16.6%、平均 13.6%，RSS 峰值 327.4MB、平均 323.9MB。这个修复解释并解决了此前“前端应用参数但待应用/运行值没变化”的核心原因。
 
 源码已接入摄像头原始码流 remux：无音频窗口会优先复用同一次拉流得到的 H.264/H.265 压缩包生成 MP4，减少 BGR 重新编码成 MP4 的 CPU 压力。2026-07-03 的 NAS 热补丁复验确认，真实摄像头流里的原始压缩包已经被保留下来，NAL 解析能识别关键帧，窗口里也已经出现 `encoded_video_packets`。后续主动查询复验进一步确认上传路径已实际 remux 成功：`remux_success=1`、`reencode=0`、`input_packets=297`、`output_bytes=1372689`，且 Omni 正常返回答案。
 
@@ -184,4 +187,4 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 2. 第一轮继续：评估硬件解码（用 NAS 芯片的视频解码单元替代纯 CPU 解码）的可落地性，作为多路摄像头的进一步安全余量。
 3. 第一轮继续：为 remux 上传体积增加更直观的性能页展示，避免用户只看到空答案，看不出是高码率包上传超时。
 4. 第二轮继续：LOW 拉流已经在单路桌面摄像头上显著达标；下一步要用多人/移动/夜间光照和更多摄像头复验，确认 80% 画面质量是否仍满足日常看家与身份识别。
-5. 运维修复：清理 NAS compose 中会覆盖配置文件的 `MILOCO_CAMERA__FRAME_INTERVAL`，否则前端应用 `camera.frame_interval` 后用户会看到配置写入但运行值不变。
+5. 运维固化：当前 NAS 已清理 `MILOCO_CAMERA__FRAME_INTERVAL` 覆盖；后续打包/部署脚本不要再把性能页可调参数写死到 compose 环境变量里，除非 UI 同步展示“被环境变量锁定”。
