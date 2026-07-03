@@ -39,6 +39,13 @@ function modeCopy(mode: OmniVideoMode | undefined) {
         tone: "text-warning",
         desc: "当前摄像头是 H.265，直接转封装给 Omni 曾出现空回答，所以先回退到重新压缩。",
       };
+    case "raw_not_remuxable":
+      return {
+        title: "原始视频包已拿到，但这次不能安全复用",
+        badge: "缺关键帧",
+        tone: "text-warning",
+        desc: "同一次拉流的压缩包存在，但没有选出可从关键帧开始的片段，所以回退到重新压缩。",
+      };
     case "reencode":
       return {
         title: "正在重新编码上传视频",
@@ -153,6 +160,16 @@ function OmniVideoContent({ data }: { data: PerfOmniVideoSummary }) {
           label="最近原始包数量"
           sub="latest input packets"
           value={(latest?.input_packets ?? 0).toFixed(0)}
+        />
+        <Info
+          label="窗口原始包"
+          sub="raw packets in window"
+          value={(latest?.raw_window_packets ?? 0).toFixed(0)}
+        />
+        <Info
+          label="窗口关键帧"
+          sub="raw keyframes"
+          value={(latest?.raw_keyframes ?? 0).toFixed(0)}
         />
       </div>
     </div>

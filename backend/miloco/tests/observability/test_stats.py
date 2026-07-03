@@ -236,6 +236,18 @@ def test_stats_omni_video_summary_aggregates_timing_detail(tmp_path):
                 "卧室/omni_video_cam2_input_packets": 300,
                 "卧室/omni_video_cam2_output_bytes": 1_500_000,
                 "卧室/omni_video_cam2_h265_remux_skipped": 1,
+                "raw_encoded_video_window_packets": 300,
+                "raw_encoded_video_keyframes": 0,
+            },
+        ),
+        (
+            "raw-not-remuxable",
+            now_ms,
+            {
+                "主卧/omni_video_cam3_reencode": 1,
+                "主卧/omni_video_cam3_output_bytes": 1_200_000,
+                "raw_encoded_video_window_packets": 180,
+                "raw_encoded_video_keyframes": 0,
             },
         ),
     ]
@@ -254,16 +266,19 @@ def test_stats_omni_video_summary_aggregates_timing_detail(tmp_path):
 
     assert r.status_code == 200
     d = r.json()
-    assert d["sample_count"] == 2
+    assert d["sample_count"] == 3
     assert d["remux_success_count"] == 1
     assert d["remux_fallback_count"] == 1
-    assert d["reencode_count"] == 1
+    assert d["reencode_count"] == 2
     assert d["h265_remux_skipped_count"] == 1
     assert d["input_packets_total"] == 420
+    assert d["raw_window_packets_total"] == 480
+    assert d["raw_keyframes_total"] == 0
     assert d["output_bytes_max"] == 1_500_000
     assert d["remux_success_rate"] == pytest.approx(0.5)
-    assert d["latest"]["trace_id"] == "h265-reencode"
-    assert d["latest"]["mode"] == "h265_reencode"
+    assert d["latest"]["trace_id"] == "raw-not-remuxable"
+    assert d["latest"]["mode"] == "raw_not_remuxable"
+    assert d["latest"]["raw_window_packets"] == 180
 
 
 def test_stats_gate_score_percentiles_per_device(tmp_path):

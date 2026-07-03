@@ -426,6 +426,12 @@ def omni_video_summary(conn, bucket, since, until):
             public: _sum_timing_suffix(detail, suffix)
             for public, suffix in _OMNI_VIDEO_SUFFIXES.items()
         }
+        sample["raw_window_packets"] = float(
+            detail.get("raw_encoded_video_window_packets", 0) or 0
+        )
+        sample["raw_keyframes"] = float(
+            detail.get("raw_encoded_video_keyframes", 0) or 0
+        )
         if not any(value > 0 for value in sample.values()):
             continue
         sample["trace_id"] = trace_id
@@ -444,6 +450,12 @@ def omni_video_summary(conn, bucket, since, until):
             latest_mode = "remux"
         elif latest["h265_remux_skipped"] > 0:
             latest_mode = "h265_reencode"
+        elif (
+            latest["reencode"] > 0
+            and latest["input_packets"] <= 0
+            and latest["raw_window_packets"] > 0
+        ):
+            latest_mode = "raw_not_remuxable"
         elif latest["reencode"] > 0:
             latest_mode = "reencode"
         elif latest["remux_fallback"] > 0:
@@ -458,6 +470,8 @@ def omni_video_summary(conn, bucket, since, until):
             s["h265_remux_skipped"] for s in samples
         ),
         "input_packets_total": sum(s["input_packets"] for s in samples),
+        "raw_window_packets_total": sum(s["raw_window_packets"] for s in samples),
+        "raw_keyframes_total": sum(s["raw_keyframes"] for s in samples),
         "output_bytes_avg": statistics.mean(output_bytes) if output_bytes else 0.0,
         "output_bytes_p95": _percentile(output_bytes, 0.95) if output_bytes else 0.0,
         "output_bytes_max": max(output_bytes) if output_bytes else 0.0,
@@ -470,6 +484,8 @@ def omni_video_summary(conn, bucket, since, until):
                 "timestamp": latest["timestamp"],
                 "mode": latest_mode,
                 "input_packets": latest["input_packets"],
+                "raw_window_packets": latest["raw_window_packets"],
+                "raw_keyframes": latest["raw_keyframes"],
                 "output_bytes": latest["output_bytes"],
                 "h265_remux_skipped": latest["h265_remux_skipped"],
             }
