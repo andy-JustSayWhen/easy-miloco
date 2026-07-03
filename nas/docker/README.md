@@ -103,9 +103,18 @@ nas/docker/data/
 ./manage.sh status
 ./manage.sh logs
 ./manage.sh validate
+./manage.sh perf-probe --duration 120 --interval 5
 ./manage.sh restart
 ./manage.sh stop
 ```
+
+`perf-probe` 默认只读采样 Miloco 后端进程 CPU/RAM，并按宿主 50% CPU/RAM 预算输出摘要。维护者临时验证默认高质量负载时可运行：
+
+```bash
+./manage.sh perf-probe --profile default-high --apply --duration 300 --interval 5
+```
+
+该模式会备份 `config.json`，应用测试配置，采样后自动恢复原配置并重启后端。
 
 需要重新执行安装流程：
 

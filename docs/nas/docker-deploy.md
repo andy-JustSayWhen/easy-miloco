@@ -135,6 +135,7 @@ EASY_MILOCO_BUILD=1 ./manage.sh start
 ./manage.sh status
 ./manage.sh logs
 ./manage.sh validate
+./manage.sh perf-probe --duration 120 --interval 5
 ./manage.sh restart
 ./manage.sh stop
 ```
@@ -143,6 +144,14 @@ EASY_MILOCO_BUILD=1 ./manage.sh start
 如果只是补模型配置而没有小米账号授权，重启后 Miloco 面板应显示模型已配置，但 `FULL_READY` 仍会因为账号未绑定保持 `no`。
 
 `./manage.sh urls` 会输出 Miloco 面板和 OpenClaw 对话页；OpenClaw 直达地址会带 token。
+
+`./manage.sh perf-probe` 默认只读采样 Miloco 后端进程的 CPU/RAM，并按宿主 CPU/RAM 50% 预算输出 `SUMMARY_JSON`。维护者做临时 A/B 时可显式应用 profile，例如：
+
+```bash
+./manage.sh perf-probe --profile default-high --apply --duration 300 --interval 5
+```
+
+该命令会先备份 `config.json`，采样后自动恢复原配置并重启后端。不要同时打开多个浏览器预览或主动查询，否则样本会被额外负载污染。
 
 更新或卸载前：
 

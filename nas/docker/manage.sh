@@ -303,6 +303,10 @@ validate() {
   compose exec -T "$SERVICE_NAME" bash -lc 'set +e; export PATH="$HOME/.openclaw/bin:$HOME/.local/bin:/root/.local/bin:$PATH"; pass=0; fail=0; printf "== easy-miloco NAS Docker validation ==\n"; if curl -fsS -m 5 "http://127.0.0.1:${MILOCO_PORT:-1810}/health" >/tmp/easy-miloco-health.json 2>/dev/null; then printf "[PASS] miloco.health %s\n" "$(cat /tmp/easy-miloco-health.json)"; pass=$((pass+1)); else printf "[FAIL] miloco.health\n"; fail=$((fail+1)); fi; if curl -fsS -m 5 "http://127.0.0.1:${OPENCLAW_PORT:-18789}/health" >/tmp/easy-openclaw-health.json 2>/dev/null; then printf "[PASS] openclaw.proxy %s\n" "$(cat /tmp/easy-openclaw-health.json)"; pass=$((pass+1)); else printf "[FAIL] openclaw.proxy\n"; fail=$((fail+1)); fi; code="$(curl -sSL -o /dev/null -w "%{http_code}" -m 5 "http://127.0.0.1:${OPENCLAW_PORT:-18789}/chat?session=main" 2>/dev/null || true)"; if [ "$code" = 200 ]; then printf "[PASS] openclaw.chat HTTP %s\n" "$code"; pass=$((pass+1)); else printf "[FAIL] openclaw.chat HTTP %s\n" "${code:-none}"; fail=$((fail+1)); fi; if [ -s "${MILOCO_HOME:-/data/miloco}/models/det_4C.onnx" ] && [ -s "${MILOCO_HOME:-/data/miloco}/models/human_body_reid_v2.onnx" ]; then printf "[PASS] miloco.models %s files in %s\n" "$(find "${MILOCO_HOME:-/data/miloco}/models" -maxdepth 1 -type f | wc -l | tr -d " ")" "${MILOCO_HOME:-/data/miloco}/models"; pass=$((pass+1)); else printf "[FAIL] miloco.models required perception models missing\n"; fail=$((fail+1)); fi; [ "$fail" -eq 0 ] && printf "BASIC_READY=yes\n" || printf "BASIC_READY=no\n"; printf "PASS_COUNT=%s\nFAIL_COUNT=%s\n" "$pass" "$fail"; exit "$fail"'
 }
 
+perf_probe() {
+  compose exec -T "$SERVICE_NAME" easy-miloco-perf-probe "$@"
+}
+
 update() {
   preflight
   ensure_env
@@ -341,6 +345,7 @@ Usage:
   ./manage.sh status         查看容器、Miloco、OpenClaw 状态
   ./manage.sh logs           跟随安装和运行日志
   ./manage.sh validate       运行基础/满血验收
+  ./manage.sh perf-probe     只读采样 Miloco 运行期 CPU/RAM
   ./manage.sh restart        重启服务
   ./manage.sh stop           停止并移除容器，保留 data/
   ./manage.sh update         备份 data/ 后更新/重建容器
@@ -360,6 +365,7 @@ case "$cmd" in
   status|ps) status "$@" ;;
   logs|log) logs "$@" ;;
   validate|check) validate "$@" ;;
+  perf-probe|perf) perf_probe "$@" ;;
   restart) restart "$@" ;;
   stop|down) stop "$@" ;;
   update) update "$@" ;;

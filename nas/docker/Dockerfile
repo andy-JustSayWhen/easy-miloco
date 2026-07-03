@@ -47,7 +47,8 @@ RUN set -eux; \
     && rm -f /tmp/easy-miloco-release.zip
 
 COPY entrypoint.sh /usr/local/bin/easy-miloco-nas-entrypoint
-RUN chmod +x /usr/local/bin/easy-miloco-nas-entrypoint
+COPY perf_probe.py /usr/local/bin/easy-miloco-perf-probe
+RUN chmod +x /usr/local/bin/easy-miloco-nas-entrypoint /usr/local/bin/easy-miloco-perf-probe
 
 WORKDIR /data
 ENTRYPOINT ["/usr/local/bin/easy-miloco-nas-entrypoint"]
