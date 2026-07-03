@@ -161,6 +161,7 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 | 运维固化 | `performance-config` 返回每个参数的 `env_override` 状态；前端对被环境变量覆盖的参数显示“外部锁定”，直接应用接口也拒绝这类参数 | `uv run pytest miloco/tests/admin/test_performance_tuning.py -q`：13 passed；`uv run ruff check ...` 通过；`pnpm run typecheck` 通过 | 基于上一行 NAS 根因固化到仓库，未再次改动 NAS 运行态 | 避免 `MILOCO_CAMERA__FRAME_INTERVAL` 这类部署环境变量再次让用户误以为面板应用无效；如果 Docker/启动脚本仍锁定参数，UI 会直接说明 |
 | 观测-资源归因 | 性能页阶段耗时从纯表格增强为“平均占比饼图 + P95 峰值柱状图 + 中文阶段解释”，直接回答“谁带崩 CPU/耗时” | `pnpm run typecheck` 通过；`pnpm run build` 通过 | 只读验证 `/api/stats?metric=stage_percentiles&window=1h`：`identity_ms` P95 约 66160ms、`omni_ms` P95 约 54124ms、`decode_ms` P95 约 1974ms、`gate_ms` P95 约 1412ms，样本数据可支撑图表；随后热部署 Web 静态资源到 NAS，HTTP 首页已引用 `assets/index-D5PcsUEp.js` / `assets/index-C6A6D_Za.css`，新 JS 内含“谁在吃资源、峰值压力、拉流解码、画面变化检测、身份识别”等文案 | 这是诊断可视化，不改变运行负载。注意 `omni_ms` 主要是云端/网络等待，不等于本地 CPU；本地 CPU 优先看 `decode/gate/identity` |
 | 第二轮-静态运行复验 | 在已生效的低配参数下做 3 分钟只读采样：`camera.video_quality=LOW`、`camera.frame_interval=5000`、`camera.max_cache_images=2`、`input.fps=1`、`omni_fps=1`、`period_sec=60`、`tracking_service_mode=mock`、`identity_engine.enabled=false`，且这些参数均未被环境变量锁定 | 无代码变更 | 7 笔采样，每 30 秒一次：CPU 峰值 13.5%、平均 12.4%，预算 200%；RSS 峰值 339.0MB、平均 337.3MB，预算 3905.5MB；没有 CPU/RAM 超预算；阶段历史 P95：`decode_ms` 约 1973ms、`gate_ms` 约 1411ms、`identity_ms` 约 66160ms、`omni_ms` 约 54124ms | 一路桌面摄像头静态运行已经非常轻，远低于 CPU/RAM 50% 预算；但这属于第二轮 80% 质量低配配置，不证明多路摄像头、有人移动、身份识别开启或 Omni 触发峰值已全部达标 |
+| 第二轮-主动查询复验 | 同一路低配配置下触发一次主动视觉查询，问题为“现在画面里有什么？请用一句话回答。”，同时每秒采样 CPU/RAM | 无代码变更 | 查询约 29.7 秒返回正常答案；29 笔采样 CPU 峰值/平均均为 12.0%，RSS 峰值/平均均为 336.6MB，无 CPU/RAM 超预算；视频构造统计：`h265_remux_skipped=1`、`remux_success=0`、`remux_fallback=1`、`reencode=1`、`input_packets=886`、`output_bytes=1764429` | 证明在 LOW + 5000ms + 1 FPS + 身份关闭的低配配置下，即使 H.265 因质量保护退回再编码并触发 Omni，当前一路摄像头峰值仍远低于预算；仍不能替代默认质量、多路摄像头或身份识别开启场景 |
 
 ## 当前结论（2026-07-03 NAS 实测）
 
@@ -181,6 +182,8 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 随后清理 NAS 当前 `/data/docker-compose.yaml` 中的 `MILOCO_CAMERA__FRAME_INTERVAL=1000`，并把 `/data/miloco/supervisord.conf` 的后端启动命令改为 `env -u MILOCO_CAMERA__FRAME_INTERVAL ... python -m miloco.main`，避免当前容器父环境继续覆盖用户配置。重启后 `/api/admin/performance-config` 显示 `camera.frame_interval=5000`，`decode_video` 降到 0.20fps。3 分钟短采样 CPU 峰值 16.6%、平均 13.6%，RSS 峰值 327.4MB、平均 323.9MB。这个修复解释并解决了此前“前端应用参数但待应用/运行值没变化”的核心原因。
 
 在这组低配参数继续生效的状态下，2026-07-03 又做了一轮 3 分钟只读短采样：CPU 峰值 13.5%、平均 12.4%，RSS 峰值 339.0MB、平均 337.3MB；预算分别是 200% CPU 和 3905.5MB RAM。采样时确认 `camera.video_quality=LOW`、`camera.frame_interval=5000`、`camera.max_cache_images=2`、`perception.engine.input.fps=1`、`omni_fps=1`、`period_sec=60`、`tracking_service_mode=mock`、`identity_engine.enabled=false`，且所有这些性能参数都没有被环境变量锁定。这说明一路静态低配运行已经有很大余量，但它仍是第二轮“约 80% 服务质量”方案，不可替代第一轮默认质量或多路/移动/身份识别触发场景的最终验收。
+
+同一轮又触发了一次主动视觉查询，返回答案能正确描述电脑桌面且确认房间内无人。查询期间 29 秒每秒采样 CPU/RAM，CPU 峰值仍为 12.0%，RSS 峰值 336.6MB。视频构造统计显示当前摄像头仍是 H.265 路径：`h265_remux_skipped=1`、`reencode=1`、`input_packets=886`、`output_bytes=1764429`。也就是说，即使为了保证 Omni 正常回答而放弃 H.265 remux、走 BGR 再编码，当前低配配置下主动查询峰值仍远低于预算。
 
 仓库侧已经把这个故障模式固化为产品行为：`GET /admin/performance-config` 会给每个性能参数返回 `env_override`，说明对应的 `MILOCO_*` 环境变量是否正在覆盖 `config.json`；前端会把这类参数标记为“外部锁定”，禁用输入，并提示需要先从 Docker/启动脚本移除变量。`POST /admin/performance-config/apply` 也会拒绝被外部锁定的参数，避免静默写入一个重启后仍不会生效的值。
 
