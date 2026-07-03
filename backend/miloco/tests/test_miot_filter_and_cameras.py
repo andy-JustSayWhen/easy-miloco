@@ -17,6 +17,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from miloco.config import reset_settings
 from miloco.database.kv_repo import ScopeConfigKeys
 from miloco.middleware.exceptions import (
     MiotServiceException,
@@ -729,7 +730,6 @@ async def test_authorize_with_code_clears_scope_before_token_exchange():
 
 from miloco.config import (  # noqa: E402  (kept near MiotProxy tests for locality)
     get_settings,
-    reset_settings,
 )
 from miloco.miot import mips_listeners as bl_module  # noqa: E402
 from miloco.miot import welcome_service as ws_module  # noqa: E402
@@ -1033,6 +1033,37 @@ async def test_create_camera_img_manager_passes_video_quality_override(
         MIoTCameraVideoQuality.LOW,
         enable_reconnect=True,
         enable_audio=False,
+        pin_code=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_camera_img_manager_passes_audio_perception_setting(
+    _scope_proxy_env,
+    tmp_path,
+):
+    proxy, _kv, miot_client = _scope_proxy_env
+    (tmp_path / "config.json").write_text(
+        json.dumps({"camera": {"enable_audio_perception": True}}),
+        encoding="utf-8",
+    )
+    reset_settings()
+
+    mock_instance = MagicMock()
+    mock_instance.start_async = AsyncMock()
+    mock_instance.register_decode_jpg_async = AsyncMock()
+    miot_client.create_camera_instance_async = AsyncMock(return_value=mock_instance)
+    miot_client._camera_client = MagicMock()
+
+    cam = _camera("c1", home_id="H1")
+    cam.channel_count = 1
+    result = await proxy._create_camera_img_manager(cam)
+
+    assert result is not None
+    mock_instance.start_async.assert_awaited_once_with(
+        MIoTCameraVideoQuality.HIGH,
+        enable_reconnect=True,
+        enable_audio=True,
         pin_code=None,
     )
 

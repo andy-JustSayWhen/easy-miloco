@@ -11,11 +11,12 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+from miloco.config import reset_settings
 from miloco.perception.collect.camera_adapter import (
-    CameraDeviceAdapter,
-    _CameraDeviceState,
     _FIRST_FRAME_FAILURE_COOLDOWN_MS,
     _LAN_HINT_FIRST_FRAME_FAILURES_BEFORE_COOLDOWN,
+    CameraDeviceAdapter,
+    _CameraDeviceState,
 )
 from miloco.perception.types import PerceptionDevice
 
@@ -54,6 +55,26 @@ class TestConnectDeviceManagerMissing:
         assert "cam1" not in adapter.get_connected_devices()
         assert adapter._devices["cam1"].decoded_audio_reg_id == -1
         proxy.start_camera_decode_audio_stream.assert_not_awaited()
+
+    def test_audio_subscription_enabled_by_config(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("MILOCO_HOME", str(tmp_path))
+        (tmp_path / "config.json").write_text(
+            '{"camera":{"enable_audio_perception":true}}',
+            encoding="utf-8",
+        )
+        reset_settings()
+        try:
+            proxy = MagicMock()
+            proxy.start_camera_decode_video_stream = AsyncMock(return_value=0)
+            proxy.start_camera_decode_audio_stream = AsyncMock(return_value=5)
+            adapter = CameraDeviceAdapter(miot_proxy=proxy)
+
+            asyncio.run(adapter.connect_device("cam1", source=_source()))
+
+            assert adapter._devices["cam1"].decoded_audio_reg_id == 5
+            proxy.start_camera_decode_audio_stream.assert_awaited_once()
+        finally:
+            reset_settings()
 
     def test_no_first_frame_device_dropped_after_timeout(self, monkeypatch):
         proxy = MagicMock()

@@ -68,7 +68,6 @@ _FIRST_VIDEO_FRAME_TIMEOUT_MS = 60_000
 _FIRST_FRAME_FAILURE_COOLDOWN_MS = 5 * 60_000
 _LAN_HINT_FIRST_FRAME_FAILURES_BEFORE_COOLDOWN = 2
 _VIDEO_FRAME_STALE_MS = 30_000
-_ENABLE_CAMERA_AUDIO_STREAM = False
 _DEFAULT_CACHE_FRAME_MAX_WIDTH = 1280
 _DEFAULT_CACHE_FRAME_MAX_HEIGHT = 720
 _ENCODED_VIDEO_PACKET_MAXLEN = 4096
@@ -96,6 +95,13 @@ def _remux_payload_codecs() -> frozenset[str]:
     if _allow_h265_remux():
         return frozenset({"h264", "h265"})
     return _REMUX_PAYLOAD_CODECS
+
+
+def _camera_audio_perception_enabled() -> bool:
+    try:
+        return bool(get_settings().camera.enable_audio_perception)
+    except Exception:
+        return False
 
 
 @dataclass
@@ -491,7 +497,7 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
         # Realtime home perception currently needs video frames. Some Xiaomi
         # cameras repeatedly emit undecodable G711A audio frames, which can
         # destabilize the backend while adding no value to visual camera status.
-        if _ENABLE_CAMERA_AUDIO_STREAM:
+        if _camera_audio_perception_enabled():
             try:
                 reg_id = await self._miot_proxy.start_camera_decode_audio_stream(
                     did, DEFAULT_AUDIO_CHANNEL, self._make_decoded_audio_callback(did)

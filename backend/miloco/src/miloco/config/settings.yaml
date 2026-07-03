@@ -60,6 +60,7 @@ miot:
 camera:
   frame_interval: 1000   # 帧采集间隔（毫秒）
   max_cache_images: 6    # 最大缓存图像数量
+  enable_audio_perception: false # 是否订阅摄像头音频参与感知；低配/NAS 默认关闭以降低本地解码/VAD 压力
   enable_hw_accel: true   # 启用硬件视频解码候选；不可用时自动回退软件解码
   video_quality: "HIGH"  # 默认摄像头拉流质量（LOW=低清/HIGH=高清）
 

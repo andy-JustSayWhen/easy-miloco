@@ -227,6 +227,13 @@ class CameraSettings(BaseModel):
 
     frame_interval: int = Field(default=1000, description="帧采集间隔（毫秒）")
     max_cache_images: int = Field(default=6, description="最大缓存图像数量")
+    enable_audio_perception: bool = Field(
+        default=False,
+        description=(
+            "是否订阅摄像头音频解码流参与感知。低配/NAS 默认关闭以减少本地拉流、"
+            "音频解码、声音门控和 VAD 压力；开启后声音触发和音频上传 Omni 才可用。"
+        ),
+    )
     enable_hw_accel: bool = Field(
         default=True,
         description="启用摄像头硬件视频解码候选；硬件不可用时自动回退软件解码",

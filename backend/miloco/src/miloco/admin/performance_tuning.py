@@ -87,6 +87,16 @@ CONFIG_SPECS: tuple[ConfigSpec, ...] = (
         impact="LOW reduces camera bandwidth, decode CPU, and image buffer memory; HIGH keeps more visual detail.",
     ),
     ConfigSpec(
+        "camera.enable_audio_perception",
+        "boolean",
+        "Camera audio perception",
+        "Subscribe to decoded camera audio streams so audio can trigger perception and be uploaded to Omni.",
+        impact=(
+            "Disabling saves camera stream, audio decode, audio gate, and VAD CPU; "
+            "video perception, identity, and visual Omni remain available."
+        ),
+    ),
+    ConfigSpec(
         "camera.enable_hw_accel",
         "boolean",
         "Hardware video decode",
@@ -290,6 +300,7 @@ LOW_POWER_SAFE_MODE_VALUES: dict[str, ConfigValue] = {
     "camera.frame_interval": 5000,
     "camera.max_cache_images": 2,
     "camera.video_quality": "LOW",
+    "camera.enable_audio_perception": False,
     "camera.enable_hw_accel": True,
     "perception.collect.window_size": 60,
     "perception.collect.max_windows": 1,

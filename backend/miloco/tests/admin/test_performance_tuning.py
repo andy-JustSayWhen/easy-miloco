@@ -96,6 +96,7 @@ async def test_diagnosis_input_contains_runtime_perf_scope_and_config(monkeypatc
     assert payload["runtime_scope"]["perception_engine"]["running"] is True
     assert "camera.frame_interval" in payload["config"]
     assert "camera.video_quality" in payload["config"]
+    assert "camera.enable_audio_perception" in payload["config"]
     assert "camera.enable_hw_accel" in payload["config"]
     assert "perception.engine.input.period_sec" in payload["config"]
     assert "perception.engine.gate.hold_duration_sec" in payload["config"]
@@ -228,6 +229,7 @@ def test_apply_writes_config_and_schedules_restart(tmp_path, monkeypatch):
         {
             "camera.frame_interval": 1500,
             "camera.video_quality": "LOW",
+            "camera.enable_audio_perception": True,
             "camera.enable_hw_accel": True,
             "perception.engine.omni.allow_h265_remux": True,
             "perception.engine.input.fps": 2,
@@ -238,6 +240,7 @@ def test_apply_writes_config_and_schedules_restart(tmp_path, monkeypatch):
     data = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
     assert data["camera"]["frame_interval"] == 1500
     assert data["camera"]["video_quality"] == "LOW"
+    assert data["camera"]["enable_audio_perception"] is True
     assert data["camera"]["enable_hw_accel"] is True
     assert data["perception"]["engine"]["omni"]["allow_h265_remux"] is True
     assert data["perception"]["engine"]["input"]["fps"] == 2
@@ -279,6 +282,7 @@ async def test_safe_mode_applies_low_power_config_and_schedules_restart(
     assert data["camera"]["frame_interval"] == 5000
     assert data["camera"]["max_cache_images"] == 2
     assert data["camera"]["video_quality"] == "LOW"
+    assert data["camera"]["enable_audio_perception"] is False
     assert data["camera"]["enable_hw_accel"] is True
     assert data["perception"]["collect"]["window_size"] == 60
     assert data["perception"]["engine"]["input"]["period_sec"] == 60

@@ -54,6 +54,13 @@ const PARAM_COPY: Record<string, ParamCopy> = {
     purpose: "控制摄像头启动时优先拉低清流还是高清流。",
     effect: "LOW 更省 CPU、内存和带宽，但画面细节更少；HIGH 更清楚但更吃资源。",
   },
+  "camera.enable_audio_perception": {
+    zh: "摄像头音频感知",
+    en: "Camera audio perception",
+    hint: "低配 NAS 建议关闭。关闭后不拉取和解码摄像头声音。",
+    purpose: "控制 Miloco 是否订阅摄像头音频，让声音也能触发感知并上传给 Omni。",
+    effect: "关闭后更省 CPU；视频感知、身份识别和画面 Omni 仍可用，但声音触发和音频内容识别不可用。",
+  },
   "camera.enable_hw_accel": {
     zh: "硬件视频解码",
     en: "Hardware video decode",
@@ -288,6 +295,9 @@ function tradeoffText(path: string): string {
   }
   if (path === "camera.video_quality") {
     return "从源头降低视频分辨率，解码和缩图都会变轻，但画面细节会减少。";
+  }
+  if (path === "camera.enable_audio_perception") {
+    return "关闭后不再拉取/解码摄像头声音，CPU 会下降；但声音触发和音频识别不可用。";
   }
   if (path === "camera.enable_hw_accel") {
     return "优先使用硬件视频解码，画质不变；硬件不可用时自动回退。";
