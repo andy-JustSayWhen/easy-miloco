@@ -193,14 +193,17 @@ class TestMultiDeviceWeighting:
             EncodedVideoPacket("h264", b"i", 0, 0, is_keyframe=True),
             EncodedVideoPacket("h264", b"p", 1, 1),
         ]
+        cam1.encoded_video_payload_bytes = 2
         cam2.encoded_video = [
-            EncodedVideoPacket("h265", b"i", 0, 0, is_keyframe=True)
+            EncodedVideoPacket("h265", b"", 0, 0, is_keyframe=True)
         ]
+        cam2.encoded_video_payload_bytes = 0
         batch = PerceptionBatch(devices={"cam1": cam1, "cam2": cam2})
 
         _pack_batch_latency_aggregates(batch)
 
         assert batch.encoded_video_packet_count == 3
+        assert batch.encoded_video_payload_bytes == 2
 
     def test_raw_encoded_video_diagnostics_sum_across_devices(self):
         cam1 = _make_device_data("cam1", video=[_video()])

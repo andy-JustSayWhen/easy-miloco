@@ -303,6 +303,33 @@ class TestCallbackIntegration:
         assert encoded.sequence == 42
         assert encoded.is_keyframe is True
 
+    def test_raw_packet_callback_strips_h265_payload_but_keeps_metadata(self, monkeypatch):
+        adapter, state = self._make_adapter_with_device()
+        monkeypatch.setattr(
+            "miloco.perception.collect.camera_adapter._monotonic_ms",
+            lambda: 5_000,
+        )
+
+        cb = adapter._make_raw_packet_callback("cam1")
+        packet = SimpleNamespace(
+            codec_id=MIoTCameraCodec.VIDEO_H265,
+            data=b"h265-packet-not-used-for-remux",
+            timestamp=4_800,
+            sequence=42,
+            frame_type=MIoTCameraFrameType.FRAME_I,
+        )
+
+        asyncio.run(cb(packet))
+
+        assert len(state.encoded_video_packets) == 1
+        encoded = state.encoded_video_packets[0]
+        assert encoded.codec == "h265"
+        assert encoded.data == b""
+        assert encoded.stream_ts == 4_800
+        assert encoded.wall_ms == 5_000
+        assert encoded.sequence == 42
+        assert encoded.is_keyframe is True
+
 
 class TestBuildDeviceDataAggregation:
     """_build_device_data packs per-window decode aggregates.
@@ -434,6 +461,7 @@ class TestBuildDeviceDataAggregation:
 
         assert dd is not None
         assert [p.data for p in dd.encoded_video] == [b"i", b"p1"]
+        assert dd.encoded_video_payload_bytes == 3
         snapshot = dd.to_snapshot()
         assert snapshot is not None
         assert [p.data for p in snapshot.encoded_video] == [b"i", b"p1"]
@@ -470,6 +498,7 @@ class TestBuildDeviceDataAggregation:
         assert (window_start_ms, window_end_ms) == (2_000, 2_001)
         assert dd is not None
         assert [p.data for p in dd.encoded_video] == [b"i", b"p1"]
+        assert dd.encoded_video_payload_bytes == 3
 
     def test_audio_only_average(self):
         adapter = CameraDeviceAdapter(miot_proxy=object())  # type: ignore[arg-type]

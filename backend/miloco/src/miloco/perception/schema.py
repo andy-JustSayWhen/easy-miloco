@@ -93,6 +93,7 @@ class DeviceData:
     video: list[DecodedVideoFrame] = field(default_factory=list)
     audio: list[DecodedAudioFrame] = field(default_factory=list)
     encoded_video: list[EncodedVideoPacket] = field(default_factory=list)
+    encoded_video_payload_bytes: int = 0
     raw_encoded_video_packet_count: int = 0
     raw_encoded_video_keyframe_count: int = 0
     raw_encoded_video_window_packet_count: int = 0
@@ -281,6 +282,7 @@ class PerceptionBatch:
     video_frame_count: int = 0
     audio_frame_count: int = 0
     encoded_video_packet_count: int = 0
+    encoded_video_payload_bytes: int = 0
     raw_encoded_video_packet_count: int = 0
     raw_encoded_video_keyframe_count: int = 0
     raw_encoded_video_window_packet_count: int = 0

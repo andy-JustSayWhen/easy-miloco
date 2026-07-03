@@ -425,6 +425,9 @@ class PipelineProcessor:
                     timing_detail["encoded_video_packets"] = float(
                         batch.encoded_video_packet_count
                     )
+                    timing_detail["encoded_video_payload_bytes"] = float(
+                        batch.encoded_video_payload_bytes
+                    )
                 if batch.raw_encoded_video_packet_count:
                     timing_detail["raw_encoded_video_packets"] = float(
                         batch.raw_encoded_video_packet_count

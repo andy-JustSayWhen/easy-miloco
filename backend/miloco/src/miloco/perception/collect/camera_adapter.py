@@ -73,6 +73,7 @@ _DEFAULT_CACHE_FRAME_MAX_WIDTH = 1280
 _DEFAULT_CACHE_FRAME_MAX_HEIGHT = 720
 _ENCODED_VIDEO_PACKET_MAXLEN = 4096
 _ENCODED_VIDEO_MAX_PREROLL_MS = 30_000
+_REMUX_PAYLOAD_CODECS = frozenset({"h264"})
 
 # TODO: 多通道支持
 DEFAULT_VIDEO_CHANNEL = 0
@@ -673,6 +674,7 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
             if window_start_ms and window_end_ms
             else []
         )
+        encoded_payload_bytes = sum(len(packet.data) for packet in encoded_video)
 
         v_count = len(video)
         a_count = len(audio)
@@ -693,6 +695,7 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
             video=video,
             audio=audio,
             encoded_video=encoded_video,
+            encoded_video_payload_bytes=encoded_payload_bytes,
             raw_encoded_video_packet_count=len(raw_packets),
             raw_encoded_video_keyframe_count=sum(
                 1 for packet in raw_packets if packet.is_keyframe
@@ -857,9 +860,10 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
                 wall_ms, _unix_ms = self._calibrate(state, ts)
                 frame_type = getattr(frame_data, "frame_type", None)
                 data = bytes(getattr(frame_data, "data", b""))
+                payload = data if codec in _REMUX_PAYLOAD_CODECS else b""
                 packet = EncodedVideoPacket(
                     codec=codec,
-                    data=data,
+                    data=payload,
                     stream_ts=ts,
                     wall_ms=wall_ms,
                     sequence=int(getattr(frame_data, "sequence", 0) or 0),
