@@ -162,6 +162,8 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 | 观测-资源归因 | 性能页阶段耗时从纯表格增强为“平均占比饼图 + P95 峰值柱状图 + 中文阶段解释”，直接回答“谁带崩 CPU/耗时” | `pnpm run typecheck` 通过；`pnpm run build` 通过 | 只读验证 `/api/stats?metric=stage_percentiles&window=1h`：`identity_ms` P95 约 66160ms、`omni_ms` P95 约 54124ms、`decode_ms` P95 约 1974ms、`gate_ms` P95 约 1412ms，样本数据可支撑图表；随后热部署 Web 静态资源到 NAS，HTTP 首页已引用 `assets/index-D5PcsUEp.js` / `assets/index-C6A6D_Za.css`，新 JS 内含“谁在吃资源、峰值压力、拉流解码、画面变化检测、身份识别”等文案 | 这是诊断可视化，不改变运行负载。注意 `omni_ms` 主要是云端/网络等待，不等于本地 CPU；本地 CPU 优先看 `decode/gate/identity` |
 | 第二轮-静态运行复验 | 在已生效的低配参数下做 3 分钟只读采样：`camera.video_quality=LOW`、`camera.frame_interval=5000`、`camera.max_cache_images=2`、`input.fps=1`、`omni_fps=1`、`period_sec=60`、`tracking_service_mode=mock`、`identity_engine.enabled=false`，且这些参数均未被环境变量锁定 | 无代码变更 | 7 笔采样，每 30 秒一次：CPU 峰值 13.5%、平均 12.4%，预算 200%；RSS 峰值 339.0MB、平均 337.3MB，预算 3905.5MB；没有 CPU/RAM 超预算；阶段历史 P95：`decode_ms` 约 1973ms、`gate_ms` 约 1411ms、`identity_ms` 约 66160ms、`omni_ms` 约 54124ms | 一路桌面摄像头静态运行已经非常轻，远低于 CPU/RAM 50% 预算；但这属于第二轮 80% 质量低配配置，不证明多路摄像头、有人移动、身份识别开启或 Omni 触发峰值已全部达标 |
 | 第二轮-主动查询复验 | 同一路低配配置下触发一次主动视觉查询，问题为“现在画面里有什么？请用一句话回答。”，同时每秒采样 CPU/RAM | 无代码变更 | 查询约 29.7 秒返回正常答案；29 笔采样 CPU 峰值/平均均为 12.0%，RSS 峰值/平均均为 336.6MB，无 CPU/RAM 超预算；视频构造统计：`h265_remux_skipped=1`、`remux_success=0`、`remux_fallback=1`、`reencode=1`、`input_packets=886`、`output_bytes=1764429` | 证明在 LOW + 5000ms + 1 FPS + 身份关闭的低配配置下，即使 H.265 因质量保护退回再编码并触发 Omni，当前一路摄像头峰值仍远低于预算；仍不能替代默认质量、多路摄像头或身份识别开启场景 |
+| 第一轮-默认质量反证 | 把 NAS 恢复到默认质量参数做短 A/B：`video_quality=HIGH`、`frame_interval=1000`、`max_cache_images=6`、`window_size=4`、`max_windows=3`、`input.fps=3`、`period_sec=4`、`tracking_service_mode=deep_sort`、`identity_engine.enabled=true` | 无代码变更 | 有效样本 19 笔；CPU 峰值 276.6%、平均 116.5%，超过 4 核宿主 200% 预算；RSS 峰值 466.8MB、平均 432.2MB，低于内存预算；阶段历史 P95：`identity_ms` 约 66088.6ms、`omni_ms` 约 54021.7ms、`decode_ms` 约 1972.5ms、`gate_ms` 约 1409.9ms | 默认高质量 + 深度身份识别在一路桌面摄像头上仍可能冲破 CPU 预算；低配 NAS 的稳定方案不能只靠第一轮无损优化，还必须保留第二轮 LOW/降频/身份降级预设 |
+| 运维固化 | `miloco-cli service start/restart` 生成 supervisor 配置时主动 `env -u` 性能页可调的 `MILOCO_*` 环境变量，避免旧 compose/shell 环境在每次重启后重新覆盖 `config.json` | `cd cli && uv run pytest tests/test_commands.py -q`：141 passed；定向 `ruff check` 通过。全量 backend ruff 仍有 3 个既有测试 import 排序问题，和本改动无关 | NAS 现场先热修 `/data/miloco/supervisord.conf` 为 `env -u MILOCO_CAMERA__FRAME_INTERVAL ... python -m miloco.main` 并重启；随后 `/health` 恢复，进程环境不再含该变量，`/api/admin/performance-config` 显示 `camera.frame_interval=5000` | 解决“低配配置已写入但重启后又变回 1000ms”的反复根因；后续 CLI 管理服务不会再次生成会继承旧性能环境变量的 supervisor 命令 |
 
 ## 当前结论（2026-07-03 NAS 实测）
 
@@ -185,7 +187,11 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 
 同一轮又触发了一次主动视觉查询，返回答案能正确描述电脑桌面且确认房间内无人。查询期间 29 秒每秒采样 CPU/RAM，CPU 峰值仍为 12.0%，RSS 峰值 336.6MB。视频构造统计显示当前摄像头仍是 H.265 路径：`h265_remux_skipped=1`、`reencode=1`、`input_packets=886`、`output_bytes=1764429`。也就是说，即使为了保证 Omni 正常回答而放弃 H.265 remux、走 BGR 再编码，当前低配配置下主动查询峰值仍远低于预算。
 
+随后做了一轮默认质量反向 A/B：恢复 HIGH 拉流、1000ms 取帧、3 FPS、短窗口和 deep_sort 身份识别后，CPU 峰值升到 276.6%，超过 4 核宿主的 200% 预算；RSS 峰值 466.8MB，内存仍安全。这说明当前真正会把低配 NAS 带崩的是“高频输入 + 深度身份识别 + Omni 长等待窗口叠加”带来的 CPU 峰值，而不是 LLM API Key 是否配置。LLM API 只把理解放到云端；本地仍要完成拉流、解码、Gate、身份识别、视频构造和上传前准备。
+
 仓库侧已经把这个故障模式固化为产品行为：`GET /admin/performance-config` 会给每个性能参数返回 `env_override`，说明对应的 `MILOCO_*` 环境变量是否正在覆盖 `config.json`；前端会把这类参数标记为“外部锁定”，禁用输入，并提示需要先从 Docker/启动脚本移除变量。`POST /admin/performance-config/apply` 也会拒绝被外部锁定的参数，避免静默写入一个重启后仍不会生效的值。
+
+还要注意另一类运维根因：只在 NAS 上手工修改 `/data/miloco/supervisord.conf` 不够，因为 `miloco-cli service restart` 会重新生成 supervisor 配置。若生成的新配置继续继承旧 compose/shell 里的 `MILOCO_CAMERA__FRAME_INTERVAL=1000`，性能页写入的 `camera.frame_interval=5000` 会在下一次后端重启后再次失效。仓库 CLI 已改为在托管服务启动命令前加 `/usr/bin/env -u ...`，清掉性能页可调参数对应的环境变量；显式前台运行仍保留环境变量语义，避免破坏开发者临时调试。
 
 为了让非研发用户能看懂“到底谁吃资源”，性能页现在把阶段耗时表上方改成两个图：饼图按平均耗时显示占比，柱状图按 P95（95% 情况下不会超过的高位耗时）排序显示峰值压力。当前 NAS 一小时只读验证里，`identity_ms` 和 `omni_ms` 的 P95 最高，但含义不同：`identity_ms` 是本地身份识别与跟踪，可能消耗 CPU；`omni_ms` 多数是上传和等待云端模型，不应直接等同为本地 CPU。持续本地 CPU 的优先观察项仍是 `decode_ms`（拉流解码）、`gate_ms`（画面变化检测）和 `identity_ms`（身份识别）。
 

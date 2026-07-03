@@ -20,6 +20,29 @@ from miloco_cli.output import print_result
 
 _PROGRAM_NAME = "miloco-backend"
 _SERVER_MODULE = "miloco.main"
+_SUPERVISOR_UNSET_ENV = (
+    "MILOCO_CAMERA__FRAME_INTERVAL",
+    "MILOCO_CAMERA__MAX_CACHE_IMAGES",
+    "MILOCO_CAMERA__VIDEO_QUALITY",
+    "MILOCO_PERCEPTION__COLLECT__WINDOW_SIZE",
+    "MILOCO_PERCEPTION__COLLECT__MAX_WINDOWS",
+    "MILOCO_PERCEPTION__COLLECT__FULL_ACTION",
+    "MILOCO_PERCEPTION__ENGINE__INPUT__FPS",
+    "MILOCO_PERCEPTION__ENGINE__INPUT__OMNI_FPS",
+    "MILOCO_PERCEPTION__ENGINE__INPUT__PERIOD_SEC",
+    "MILOCO_PERCEPTION__ENGINE__GATE__HOLD_DURATION_SEC",
+    "MILOCO_PERCEPTION__ENGINE__IDENTITY__TRACKING_SERVICE_MODE",
+    "MILOCO_PERCEPTION__ENGINE__IDENTITY_ENGINE__ENABLED",
+    "MILOCO_PERCEPTION__ENGINE__IDENTITY_ENGINE__DEEP_SORT__MODE",
+    "MILOCO_PERCEPTION__ENGINE__IDENTITY_ENGINE__DEEP_SORT__HUMAN_REID_SKIP_WINDOWS",
+    "MILOCO_PERCEPTION__SNAPSHOT_MAX_DISK_MB",
+    "MILOCO_PERF__ENABLED",
+    "MILOCO_PERF__RETENTION__TRACES_DAYS",
+    "MILOCO_PERF__RETENTION__EVENTS_DAYS",
+    "MILOCO_PERF__RETENTION__AGENT_RUNS_DAYS",
+    "MILOCO_PERF__RETENTION__TRACE_JSONL_DAYS",
+    "MILOCO_PERF__RETENTION__OMNI_LOG_DAYS",
+)
 
 
 # 路径相关常量延迟到调用时解析：``miloco_home()``
@@ -198,6 +221,22 @@ def _server_cmd_or_exit(pretty: bool) -> list[str]:
         sys.exit(1)
 
     return [str(p), "-m", _SERVER_MODULE]
+
+
+def _server_cmd_for_supervisor(cmd: list[str]) -> str:
+    """Build supervisor command without inherited performance tuning env locks.
+
+    The backend still honors explicitly configured environment variables in
+    non-supervised launches. For the managed service path, the Web performance
+    page writes config.json and restarts the backend; inherited MILOCO_* tuning
+    variables from an old compose/shell environment would otherwise override
+    those applied values after every restart.
+    """
+    env_cmd = ["/usr/bin/env"]
+    for name in _SUPERVISOR_UNSET_ENV:
+        env_cmd.extend(["-u", name])
+    env_cmd.extend(cmd)
+    return shlex.join(env_cmd)
 
 
 # ─── supervisor 辅助 ─────────────────────────────────────────────────────────
@@ -381,7 +420,7 @@ def service_start(foreground, pretty):
         os.execvp(cmd[0], cmd)
         # 不会到达这里
     else:
-        _generate_supervisor_conf(shlex.join(cmd))
+        _generate_supervisor_conf(_server_cmd_for_supervisor(cmd))
 
         if _supervisord_is_running():
             _supervisorctl("reread")

@@ -171,6 +171,17 @@ def test_config_set_triggers_restart_when_running(runner, isolated_config, monke
     assert data["restart"] == {"triggered": True}
 
 
+def test_service_supervisor_command_unsets_perf_env():
+    from miloco_cli.commands.service import _server_cmd_for_supervisor
+
+    cmd = _server_cmd_for_supervisor(["/opt/miloco/python", "-m", "miloco.main"])
+
+    assert "/usr/bin/env" in cmd
+    assert "-u MILOCO_CAMERA__FRAME_INTERVAL" in cmd
+    assert "-u MILOCO_PERCEPTION__ENGINE__INPUT__FPS" in cmd
+    assert "/opt/miloco/python -m miloco.main" in cmd
+
+
 def test_config_list_paths(runner):
     result = runner.invoke(cli, ["config", "list-paths"])
     assert result.exit_code == 0
