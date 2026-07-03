@@ -87,6 +87,13 @@ CONFIG_SPECS: tuple[ConfigSpec, ...] = (
         impact="LOW reduces camera bandwidth, decode CPU, and image buffer memory; HIGH keeps more visual detail.",
     ),
     ConfigSpec(
+        "camera.enable_hw_accel",
+        "boolean",
+        "Hardware video decode",
+        "Try hardware video decoders for camera streams when the NAS exposes them.",
+        impact="Keeps image quality unchanged; if hardware is unavailable Miloco falls back to software decoding.",
+    ),
+    ConfigSpec(
         "perception.collect.window_size",
         "integer",
         "Collect window size",
@@ -273,6 +280,7 @@ LOW_POWER_SAFE_MODE_VALUES: dict[str, ConfigValue] = {
     "camera.frame_interval": 5000,
     "camera.max_cache_images": 2,
     "camera.video_quality": "LOW",
+    "camera.enable_hw_accel": True,
     "perception.collect.window_size": 60,
     "perception.collect.max_windows": 1,
     "perception.collect.full_action": "clear",

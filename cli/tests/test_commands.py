@@ -178,6 +178,7 @@ def test_service_supervisor_command_unsets_perf_env():
 
     assert "/usr/bin/env" in cmd
     assert "-u MILOCO_CAMERA__FRAME_INTERVAL" in cmd
+    assert "-u MILOCO_CAMERA__ENABLE_HW_ACCEL" in cmd
     assert "-u MILOCO_PERCEPTION__ENGINE__INPUT__FPS" in cmd
     assert "/opt/miloco/python -m miloco.main" in cmd
 

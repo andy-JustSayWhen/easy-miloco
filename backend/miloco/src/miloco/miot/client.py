@@ -102,6 +102,7 @@ class MiotProxy:
         _settings = get_settings()
         self._frame_interval: int = _settings.camera.frame_interval
         self._max_cache_images: int = _settings.camera.max_cache_images
+        self._enable_hw_accel: bool = _settings.camera.enable_hw_accel
 
         # two times cache ttl, at least 1 second
         # frame_interval * cache_max_size / 1000 * 2 = seconds
@@ -810,7 +811,9 @@ class MiotProxy:
     ) -> MIoTCameraInstance | None:
         try:
             return await self._miot_client.create_camera_instance_async(
-                camera_info, frame_interval=self._frame_interval
+                camera_info,
+                frame_interval=self._frame_interval,
+                enable_hw_accel=self._enable_hw_accel,
             )
         except Exception as e:
             logger.error("Failed to get camera instance: %s", e)

@@ -54,6 +54,13 @@ const PARAM_COPY: Record<string, ParamCopy> = {
     purpose: "控制摄像头启动时优先拉低清流还是高清流。",
     effect: "LOW 更省 CPU、内存和带宽，但画面细节更少；HIGH 更清楚但更吃资源。",
   },
+  "camera.enable_hw_accel": {
+    zh: "硬件视频解码",
+    en: "Hardware video decode",
+    hint: "建议开启。NAS 有核显时少用 CPU；没有硬件时会自动回退。",
+    purpose: "尝试用 NAS 的视频解码单元处理摄像头 H.264/H.265 画面。",
+    effect: "画质不变；硬件可用时降低解码 CPU，不可用时保持软件解码。",
+  },
   "perception.collect.window_size": {
     zh: "单次感知窗口长度",
     en: "Collect window size",
@@ -271,6 +278,9 @@ function tradeoffText(path: string): string {
   }
   if (path === "camera.video_quality") {
     return "从源头降低视频分辨率，解码和缩图都会变轻，但画面细节会减少。";
+  }
+  if (path === "camera.enable_hw_accel") {
+    return "优先使用硬件视频解码，画质不变；硬件不可用时自动回退。";
   }
   if (path.includes("identity") || path.includes("deep_sort")) {
     return "身份识别刷新会变慢，但能减少持续高 CPU。";

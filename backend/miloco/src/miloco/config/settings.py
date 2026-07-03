@@ -227,6 +227,10 @@ class CameraSettings(BaseModel):
 
     frame_interval: int = Field(default=1000, description="帧采集间隔（毫秒）")
     max_cache_images: int = Field(default=6, description="最大缓存图像数量")
+    enable_hw_accel: bool = Field(
+        default=True,
+        description="启用摄像头硬件视频解码候选；硬件不可用时自动回退软件解码",
+    )
     video_quality: str = Field(
         default="HIGH",
         description="默认摄像头拉流质量（LOW/HIGH）；单摄像头覆盖仍可通过 workspace/camera_video_quality_overrides.json 设置",
