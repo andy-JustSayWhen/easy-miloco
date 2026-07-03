@@ -108,7 +108,7 @@ nas/docker/data/
 ./manage.sh stop
 ```
 
-`perf-probe` 默认只读采样 Miloco 后端进程 CPU/RAM，并按宿主 50% CPU/RAM 预算输出摘要。维护者临时验证默认高质量负载时可运行：
+`perf-probe` 默认只读采样 Miloco 后端进程 CPU/RAM，并按宿主 50% CPU/RAM 预算输出摘要。摘要里的 `trace_summary.stage` 用来定位拉流解码、Gate、身份识别、Omni 等阶段耗时；`trace_summary.omni_video` 用来区分 remux / reencode。维护者临时验证默认高质量负载时可运行：
 
 ```bash
 ./manage.sh perf-probe --profile default-high --apply --duration 300 --interval 5

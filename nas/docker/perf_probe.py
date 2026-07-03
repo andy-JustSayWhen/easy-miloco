@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import signal
+import sqlite3
 import subprocess
 import time
 import urllib.error
@@ -16,6 +17,7 @@ from typing import Any
 
 
 CONFIG_PATH = Path(os.environ.get("MILOCO_CONFIG_PATH", "/data/miloco/config.json"))
+OBSERVABILITY_DB_PATH = Path(os.environ.get("MILOCO_OBSERVABILITY_DB_PATH", "/data/miloco/observability.db"))
 SUPERVISOR_CONF = Path(os.environ.get("MILOCO_SUPERVISOR_CONF", "/data/miloco/supervisord.conf"))
 MILOCO_PORT = int(os.environ.get("MILOCO_PORT", "1810"))
 CLOCK_TICKS = os.sysconf(os.sysconf_names["SC_CLK_TCK"])
@@ -65,6 +67,27 @@ LOW_POWER_VALUES: dict[str, Any] = {
 }
 
 SNAPSHOT_PATHS = tuple(DEFAULT_HIGH_VALUES.keys())
+TRACE_STAGE_FIELDS = (
+    "decode_ms",
+    "collect_ms",
+    "convert_ms",
+    "gate_ms",
+    "gate_video_ms",
+    "gate_audio_ms",
+    "identity_ms",
+    "omni_ms",
+    "cycle_total_ms",
+    "window_duration_ms",
+)
+OMNI_VIDEO_SUFFIXES = (
+    "remux_success",
+    "remux_fallback",
+    "reencode",
+    "input_packets",
+    "output_bytes",
+    "h265_remux_skipped",
+    "h265_empty_retry",
+)
 
 
 @dataclass
@@ -194,6 +217,159 @@ def host_memory_total_mb() -> float:
     return 0.0
 
 
+def percentile(values: list[float], q: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    idx = min(len(ordered) - 1, max(0, int(len(ordered) * q) - 1))
+    return ordered[idx]
+
+
+def numeric_stats(values: list[float]) -> dict[str, Any]:
+    if not values:
+        return {"avg": 0.0, "p95": 0.0, "max": 0.0, "sample_size": 0}
+    return {
+        "avg": round(sum(values) / len(values), 1),
+        "p95": round(percentile(values, 0.95), 1),
+        "max": round(max(values), 1),
+        "sample_size": len(values),
+    }
+
+
+def sum_timing_suffix(detail: dict[str, Any], suffix: str) -> float:
+    marker = f"_{suffix}"
+    total = 0.0
+    for key, value in detail.items():
+        if key == f"omni_video_{suffix}" or key.endswith(marker):
+            if isinstance(value, (int, float)):
+                total += float(value)
+    return total
+
+
+def read_trace_summary(window_minutes: int) -> dict[str, Any]:
+    if window_minutes <= 0:
+        return {"enabled": False}
+    if not OBSERVABILITY_DB_PATH.exists():
+        return {"enabled": True, "present": False, "error": "observability db not found"}
+
+    try:
+        conn = sqlite3.connect(f"file:{OBSERVABILITY_DB_PATH}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+    except sqlite3.Error as exc:
+        return {"enabled": True, "present": True, "error": f"open failed: {exc}"}
+
+    try:
+        table = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='traces'"
+        ).fetchone()
+        if table is None:
+            return {"enabled": True, "present": True, "error": "traces table not found"}
+
+        max_ts = conn.execute("SELECT max(timestamp) FROM traces").fetchone()[0]
+        if max_ts is None:
+            return {"enabled": True, "present": True, "row_count": 0}
+
+        since = int(max_ts) - window_minutes * 60_000
+        rows = conn.execute(
+            "SELECT * FROM traces WHERE timestamp >= ? ORDER BY timestamp",
+            (since,),
+        ).fetchall()
+
+        stage: dict[str, dict[str, Any]] = {}
+        for field in TRACE_STAGE_FIELDS:
+            vals = [float(row[field] or 0) for row in rows if row[field] is not None and float(row[field] or 0) > 0]
+            stage[field] = numeric_stats(vals)
+
+        video_samples: list[dict[str, Any]] = []
+        for row in rows:
+            raw = row["timing_detail"]
+            if not raw:
+                continue
+            try:
+                detail = json.loads(raw)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if not isinstance(detail, dict):
+                continue
+            sample = {suffix: sum_timing_suffix(detail, suffix) for suffix in OMNI_VIDEO_SUFFIXES}
+            sample["raw_window_packets"] = float(detail.get("raw_encoded_video_window_packets", 0) or 0)
+            sample["raw_keyframes"] = float(detail.get("raw_encoded_video_keyframes", 0) or 0)
+            if any(value > 0 for value in sample.values()):
+                sample["timestamp"] = row["timestamp"]
+                sample["trace_id"] = row["trace_id"]
+                video_samples.append(sample)
+
+        output_bytes = [sample["output_bytes"] for sample in video_samples if sample["output_bytes"] > 0]
+        remux_success = sum(sample["remux_success"] for sample in video_samples)
+        remux_fallback = sum(sample["remux_fallback"] for sample in video_samples)
+        total_attempts = remux_success + remux_fallback
+        latest = video_samples[-1] if video_samples else None
+        latest_video = None
+        if latest:
+            mode = "none"
+            if latest["h265_empty_retry"] > 0:
+                mode = "h265_empty_retry"
+            elif latest["remux_success"] > 0 and latest["reencode"] <= 0:
+                mode = "remux"
+            elif latest["h265_remux_skipped"] > 0:
+                mode = "h265_reencode"
+            elif latest["reencode"] > 0:
+                mode = "reencode"
+            elif latest["remux_fallback"] > 0:
+                mode = "fallback"
+            latest_video = {
+                "trace_id": latest["trace_id"],
+                "timestamp": latest["timestamp"],
+                "mode": mode,
+                "input_packets": latest["input_packets"],
+                "raw_window_packets": latest["raw_window_packets"],
+                "raw_keyframes": latest["raw_keyframes"],
+                "output_bytes": latest["output_bytes"],
+                "h265_remux_skipped": latest["h265_remux_skipped"],
+                "h265_empty_retry": latest["h265_empty_retry"],
+            }
+
+        return {
+            "enabled": True,
+            "present": True,
+            "window_minutes": window_minutes,
+            "since_ts": since,
+            "until_ts": max_ts,
+            "row_count": len(rows),
+            "skipped_count": sum(1 for row in rows if row["skipped"]),
+            "omni_error_count": sum(int(row["omni_error_count"] or 0) for row in rows),
+            "dropped_windows_total": rows[-1]["dropped_windows_total"] if rows else None,
+            "overflow_count_total": rows[-1]["overflow_count_total"] if rows else None,
+            "stage": stage,
+            "omni_video": {
+                "sample_count": len(video_samples),
+                "remux_success_count": round(remux_success, 1),
+                "remux_fallback_count": round(remux_fallback, 1),
+                "reencode_count": round(sum(sample["reencode"] for sample in video_samples), 1),
+                "h265_remux_skipped_count": round(
+                    sum(sample["h265_remux_skipped"] for sample in video_samples), 1
+                ),
+                "h265_empty_retry_count": round(
+                    sum(sample["h265_empty_retry"] for sample in video_samples), 1
+                ),
+                "input_packets_total": round(sum(sample["input_packets"] for sample in video_samples), 1),
+                "raw_window_packets_total": round(
+                    sum(sample["raw_window_packets"] for sample in video_samples), 1
+                ),
+                "raw_keyframes_total": round(sum(sample["raw_keyframes"] for sample in video_samples), 1),
+                "output_bytes": numeric_stats(output_bytes),
+                "remux_success_rate": round(remux_success / total_attempts, 3)
+                if total_attempts > 0
+                else 0.0,
+                "latest": latest_video,
+            },
+        }
+    except sqlite3.Error as exc:
+        return {"enabled": True, "present": True, "error": f"query failed: {exc}"}
+    finally:
+        conn.close()
+
+
 def sample_process(duration_s: int, interval_s: int) -> list[Sample]:
     pid = find_miloco_pid()
     if pid is None:
@@ -257,6 +433,13 @@ def parse_args() -> argparse.Namespace:
         help="Do not restore the original config after applying a profile.",
     )
     parser.add_argument("--health-timeout", type=int, default=90, help="Seconds to wait for /health after restart.")
+    parser.add_argument(
+        "--trace-window-minutes",
+        type=int,
+        default=10,
+        help="Minutes of observability traces to summarize after sampling.",
+    )
+    parser.add_argument("--no-traces", action="store_true", help="Do not read observability.db trace summary.")
     return parser.parse_args()
 
 
@@ -303,6 +486,7 @@ def main() -> int:
 
         samples = sample_process(args.duration, args.interval)
         sampled_config = config_snapshot(load_config())
+        trace_summary = None if args.no_traces else read_trace_summary(args.trace_window_minutes)
         if restore_needed and backup_path and backup_path.exists():
             restore_backup(backup_path, args.health_timeout)
             backup_path = None
@@ -318,6 +502,7 @@ def main() -> int:
                 "config_sampled": sampled_config,
                 "config_final": final_config,
                 "restored": restored,
+                "trace_summary": trace_summary,
             }
         )
         print("SUMMARY_JSON=" + json.dumps(summary, ensure_ascii=False, sort_keys=True), flush=True)

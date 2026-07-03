@@ -145,7 +145,7 @@ EASY_MILOCO_BUILD=1 ./manage.sh start
 
 `./manage.sh urls` 会输出 Miloco 面板和 OpenClaw 对话页；OpenClaw 直达地址会带 token。
 
-`./manage.sh perf-probe` 默认只读采样 Miloco 后端进程的 CPU/RAM，并按宿主 CPU/RAM 50% 预算输出 `SUMMARY_JSON`。维护者做临时 A/B 时可显式应用 profile，例如：
+`./manage.sh perf-probe` 默认只读采样 Miloco 后端进程的 CPU/RAM，并按宿主 CPU/RAM 50% 预算输出 `SUMMARY_JSON`。摘要里的 `trace_summary.stage` 会列出最近 trace 的阶段耗时，`trace_summary.omni_video` 会列出 remux / reencode 统计，用来判断“谁在吃资源”。维护者做临时 A/B 时可显式应用 profile，例如：
 
 ```bash
 ./manage.sh perf-probe --profile default-high --apply --duration 300 --interval 5
