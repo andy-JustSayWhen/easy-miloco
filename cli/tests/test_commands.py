@@ -1,6 +1,8 @@
 """CLI 命令测试：使用 Click CliRunner，mock 底层 API 调用。"""
 
+import ast
 import json
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -172,15 +174,45 @@ def test_config_set_triggers_restart_when_running(runner, isolated_config, monke
 
 
 def test_service_supervisor_command_unsets_perf_env():
-    from miloco_cli.commands.service import _server_cmd_for_supervisor
+    from miloco_cli.commands.service import (
+        _SUPERVISOR_UNSET_ENV,
+        _server_cmd_for_supervisor,
+    )
 
     cmd = _server_cmd_for_supervisor(["/opt/miloco/python", "-m", "miloco.main"])
 
     assert "/usr/bin/env" in cmd
     assert "-u MILOCO_CAMERA__FRAME_INTERVAL" in cmd
+    assert "-u MILOCO_CAMERA__ENABLE_AUDIO_PERCEPTION" in cmd
     assert "-u MILOCO_CAMERA__ENABLE_HW_ACCEL" in cmd
+    assert "-u MILOCO_PERCEPTION__ENGINE__OMNI__ALLOW_H265_REMUX" in cmd
     assert "-u MILOCO_PERCEPTION__ENGINE__INPUT__FPS" in cmd
     assert "/opt/miloco/python -m miloco.main" in cmd
+
+    tuning_source = (
+        Path(__file__).resolve().parents[2]
+        / "backend"
+        / "miloco"
+        / "src"
+        / "miloco"
+        / "admin"
+        / "performance_tuning.py"
+    )
+    tree = ast.parse(tuning_source.read_text(encoding="utf-8"))
+    config_paths: set[str] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "ConfigSpec"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+        ):
+            config_paths.add(node.args[0].value)
+
+    expected = {f"MILOCO_{path.replace('.', '__').upper()}" for path in config_paths}
+    assert set(_SUPERVISOR_UNSET_ENV) == expected
 
 
 def test_config_list_paths(runner):
