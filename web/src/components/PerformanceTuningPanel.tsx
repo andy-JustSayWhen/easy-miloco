@@ -110,6 +110,13 @@ const PARAM_COPY: Record<string, ParamCopy> = {
     purpose: "控制画面刚有变化后，Miloco 继续保持视觉分析的时间。",
     effect: "调小后能阻止长时间视频/Omni 堆积，但连续慢动作可能被拆散。",
   },
+  "perception.engine.omni.allow_h265_remux": {
+    zh: "H.265 直传实验开关",
+    en: "Experimental H.265 remux",
+    hint: "只建议排障时开启。它能减少重新编码 CPU，但长视频曾让 Omni 空回答。",
+    purpose: "允许把摄像头原始 H.265 视频包直接封装后上传 Omni。",
+    effect: "开启后可能显著降低上传前 CPU；如果出现空回答或超时，应关闭。",
+  },
   "perception.engine.identity.tracking_service_mode": {
     zh: "身份跟踪模式",
     en: "Tracking mode",
@@ -269,6 +276,9 @@ function tradeoffText(path: string): string {
   }
   if (path === "perception.engine.gate.hold_duration_sec") {
     return "减少持续视频分析，避免 Omni 堆积，但连续变化的上下文会变少。";
+  }
+  if (path === "perception.engine.omni.allow_h265_remux") {
+    return "可避免 H.265 上传前重新编码，CPU 更低；但这是实验项，异常时应关闭。";
   }
   if (path === "perception.collect.max_windows") {
     return "积压窗口会更快被丢弃，优先保证系统不卡死。";

@@ -162,6 +162,16 @@ CONFIG_SPECS: tuple[ConfigSpec, ...] = (
         impact="Lower values stop long video hold bursts; 0 is safest for low-end NAS.",
     ),
     ConfigSpec(
+        "perception.engine.omni.allow_h265_remux",
+        "boolean",
+        "Experimental H.265 remux",
+        "Allow H.265 camera packets to be remuxed directly for Omni uploads.",
+        impact=(
+            "Can avoid CPU-heavy re-encoding on H.265 cameras, but remains experimental "
+            "because long H.265 windows previously produced empty Omni answers."
+        ),
+    ),
+    ConfigSpec(
         "perception.engine.identity.tracking_service_mode",
         "string",
         "Tracking mode",
@@ -288,6 +298,7 @@ LOW_POWER_SAFE_MODE_VALUES: dict[str, ConfigValue] = {
     "perception.engine.input.omni_fps": 1,
     "perception.engine.input.period_sec": 60,
     "perception.engine.gate.hold_duration_sec": 0,
+    "perception.engine.omni.allow_h265_remux": False,
     "perception.engine.identity.tracking_service_mode": "mock",
     "perception.engine.identity_engine.enabled": False,
     "perception.engine.identity_engine.deep_sort.mode": "fast",

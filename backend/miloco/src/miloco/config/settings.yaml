@@ -91,6 +91,7 @@ perception:
       tracking_service_mode: "deep_sort"
     omni:
       timeout: 30.0 # 请求超时（秒）
+      allow_h265_remux: false # 实验项：允许 H.265 原始包直接转封装上传 Omni，默认关闭以保护回答质量
 
     # 注：omni 身份识别系统（identity_engine）配置位于
     # ``perception/engine/identity/default_config.yaml``，本文件不维护其默认值。

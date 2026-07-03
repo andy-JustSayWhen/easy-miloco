@@ -99,6 +99,7 @@ async def test_diagnosis_input_contains_runtime_perf_scope_and_config(monkeypatc
     assert "camera.enable_hw_accel" in payload["config"]
     assert "perception.engine.input.period_sec" in payload["config"]
     assert "perception.engine.gate.hold_duration_sec" in payload["config"]
+    assert "perception.engine.omni.allow_h265_remux" in payload["config"]
     assert payload["config_schema"]["perception.collect.window_size"]["max"] == 60
     assert payload["target"]["requires_backend_restart"] is True
 
@@ -228,6 +229,7 @@ def test_apply_writes_config_and_schedules_restart(tmp_path, monkeypatch):
             "camera.frame_interval": 1500,
             "camera.video_quality": "LOW",
             "camera.enable_hw_accel": True,
+            "perception.engine.omni.allow_h265_remux": True,
             "perception.engine.input.fps": 2,
             "perf.enabled": True,
         }
@@ -237,6 +239,7 @@ def test_apply_writes_config_and_schedules_restart(tmp_path, monkeypatch):
     assert data["camera"]["frame_interval"] == 1500
     assert data["camera"]["video_quality"] == "LOW"
     assert data["camera"]["enable_hw_accel"] is True
+    assert data["perception"]["engine"]["omni"]["allow_h265_remux"] is True
     assert data["perception"]["engine"]["input"]["fps"] == 2
     assert data["perf"]["enabled"] is True
     assert scheduled == [True]
@@ -280,6 +283,7 @@ async def test_safe_mode_applies_low_power_config_and_schedules_restart(
     assert data["perception"]["collect"]["window_size"] == 60
     assert data["perception"]["engine"]["input"]["period_sec"] == 60
     assert data["perception"]["engine"]["gate"]["hold_duration_sec"] == 0
+    assert data["perception"]["engine"]["omni"]["allow_h265_remux"] is False
     assert data["perception"]["engine"]["identity_engine"]["enabled"] is False
     assert result["preset"] == "nas_safe_mode"
     assert result["camera_action"]["disabled_count"] == 2
