@@ -132,6 +132,8 @@
     "stageRank1st": "1st",
     "stageRank2nd": "2nd",
     "stageRank3rd": "3rd",
+    "stageAttributionPie": "Resource attribution: average share",
+    "stageAttributionBars": "Peak pressure: P95 bars",
     "colStage": "Stage",
     "colAvgMs": "AVG (ms)",
     "colAvgPct": "AVG share",

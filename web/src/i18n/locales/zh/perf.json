@@ -132,6 +132,8 @@
     "stageRank1st": "1st",
     "stageRank2nd": "2nd",
     "stageRank3rd": "3rd",
+    "stageAttributionPie": "谁在吃资源：平均占比",
+    "stageAttributionBars": "峰值压力：P95 柱状图",
     "colStage": "阶段",
     "colAvgMs": "AVG (ms)",
     "colAvgPct": "AVG 占比",

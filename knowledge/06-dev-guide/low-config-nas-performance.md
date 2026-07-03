@@ -59,6 +59,7 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 - BGR 帧回调现在遵守 `camera.frame_interval`。此前该参数只节流 JPEG 预览输出，不节流感知使用的 BGR 帧，导致 60 秒窗口仍进入 400 多帧。
 - 资源监控的内存明细采样延后并降频。`smaps`（Linux 进程内存区域明细）和 Python heap（Python 对象堆）采样本身会遍历大量进程状态，在低配 NAS 上可能制造启动期或周期性 CPU 尖峰；运行期默认只保留轻量 CPU/RSS 采样，明细内存快照按较低频率采集。
 - 性能配置 API 会标记被 `MILOCO_*` 环境变量覆盖的参数，前端会显示“外部锁定”并禁用输入；直接调用应用接口时也会拒绝这类参数，避免写入 `config.json` 后重启仍不生效。
+- 性能页阶段耗时区新增小白可读的资源归因饼图和 P95 柱状图：中文主标签说明“拉流解码、画面变化检测、身份识别、云端理解”等阶段，英文原阶段名低权重保留，便于把“谁吃资源”直接视觉化。
 
 ## 第一轮：不降低运行质量
 
@@ -158,6 +159,7 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 | 第二轮-拉流质量 | 将 NAS 运行配置显式设为 `camera.video_quality=LOW`，从源头拉低清流，降低解码、缩图、Gate 和再编码输入压力 | `uv run pytest miloco/tests/admin/test_performance_tuning.py miloco/tests/test_miot_filter_and_cameras.py -q`：79 passed；`uv run ruff check ...` 通过 | NAS 热补丁后 `/api/admin/performance-config` 显示 `camera.video_quality=LOW`；一路桌面摄像头 6 分钟只读采样：CPU 峰值 18.5%、平均 14.7%；RSS 峰值 429.5MB、平均 424.3MB；raw_video 平均 15.08fps、decode_video 平均 0.97fps。主动问答两次均正常回答 `没有。`，H.265 仍走 `h265_remux_skipped=1`、`reencode=1`；第二次问答期间容器内 1 秒 `ps` 采样 Miloco 进程 CPU 峰值约 17.5%、RSS 峰值约 447.6MB | LOW 会牺牲画面细节，属于第二轮“服务质量约 80%”方案；但对单路低配 NAS 的运行期和主动问答峰值非常有效，当前远低于 4 核宿主 200% CPU / 约 3.8GB RAM 预算 |
 | 第二轮-配置生效 | 清理 NAS compose 里的 `MILOCO_CAMERA__FRAME_INTERVAL=1000` 覆盖，并让 supervisor 启动后端时 `env -u MILOCO_CAMERA__FRAME_INTERVAL`，使 `config.json` / 性能页应用值成为真实运行值 | NAS 运行期验证：`/api/admin/performance-config` 从 `camera.frame_interval=1000` 变为 `5000`；`/api/monitor/nodes` 的 `decode_video` 从约 0.97fps 降为 0.20fps | 3 分钟短采样：CPU 峰值 16.6%、平均 13.6%；RSS 峰值 327.4MB、平均 323.9MB；raw_video 平均 15.12fps、decode_video 平均 0.20fps；RTF 峰值 0.422 | 修复了“配置写了但运行值不变”的真实根因；后续前端应用 `camera.frame_interval` 才会真正影响拉流解码后的取帧频率 |
 | 运维固化 | `performance-config` 返回每个参数的 `env_override` 状态；前端对被环境变量覆盖的参数显示“外部锁定”，直接应用接口也拒绝这类参数 | `uv run pytest miloco/tests/admin/test_performance_tuning.py -q`：13 passed；`uv run ruff check ...` 通过；`pnpm run typecheck` 通过 | 基于上一行 NAS 根因固化到仓库，未再次改动 NAS 运行态 | 避免 `MILOCO_CAMERA__FRAME_INTERVAL` 这类部署环境变量再次让用户误以为面板应用无效；如果 Docker/启动脚本仍锁定参数，UI 会直接说明 |
+| 观测-资源归因 | 性能页阶段耗时从纯表格增强为“平均占比饼图 + P95 峰值柱状图 + 中文阶段解释”，直接回答“谁带崩 CPU/耗时” | `pnpm run typecheck` 通过；`pnpm run build` 通过 | 只读验证 `/api/stats?metric=stage_percentiles&window=1h`：`identity_ms` P95 约 66160ms、`omni_ms` P95 约 54124ms、`decode_ms` P95 约 1974ms、`gate_ms` P95 约 1412ms，样本数据可支撑图表 | 这是诊断可视化，不改变运行负载。注意 `omni_ms` 主要是云端/网络等待，不等于本地 CPU；本地 CPU 优先看 `decode/gate/identity` |
 
 ## 当前结论（2026-07-03 NAS 实测）
 
@@ -178,6 +180,8 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 随后清理 NAS 当前 `/data/docker-compose.yaml` 中的 `MILOCO_CAMERA__FRAME_INTERVAL=1000`，并把 `/data/miloco/supervisord.conf` 的后端启动命令改为 `env -u MILOCO_CAMERA__FRAME_INTERVAL ... python -m miloco.main`，避免当前容器父环境继续覆盖用户配置。重启后 `/api/admin/performance-config` 显示 `camera.frame_interval=5000`，`decode_video` 降到 0.20fps。3 分钟短采样 CPU 峰值 16.6%、平均 13.6%，RSS 峰值 327.4MB、平均 323.9MB。这个修复解释并解决了此前“前端应用参数但待应用/运行值没变化”的核心原因。
 
 仓库侧已经把这个故障模式固化为产品行为：`GET /admin/performance-config` 会给每个性能参数返回 `env_override`，说明对应的 `MILOCO_*` 环境变量是否正在覆盖 `config.json`；前端会把这类参数标记为“外部锁定”，禁用输入，并提示需要先从 Docker/启动脚本移除变量。`POST /admin/performance-config/apply` 也会拒绝被外部锁定的参数，避免静默写入一个重启后仍不会生效的值。
+
+为了让非研发用户能看懂“到底谁吃资源”，性能页现在把阶段耗时表上方改成两个图：饼图按平均耗时显示占比，柱状图按 P95（95% 情况下不会超过的高位耗时）排序显示峰值压力。当前 NAS 一小时只读验证里，`identity_ms` 和 `omni_ms` 的 P95 最高，但含义不同：`identity_ms` 是本地身份识别与跟踪，可能消耗 CPU；`omni_ms` 多数是上传和等待云端模型，不应直接等同为本地 CPU。持续本地 CPU 的优先观察项仍是 `decode_ms`（拉流解码）、`gate_ms`（画面变化检测）和 `identity_ms`（身份识别）。
 
 源码已接入摄像头原始码流 remux：无音频窗口会优先复用同一次拉流得到的 H.264/H.265 压缩包生成 MP4，减少 BGR 重新编码成 MP4 的 CPU 压力。2026-07-03 的 NAS 热补丁复验确认，真实摄像头流里的原始压缩包已经被保留下来，NAL 解析能识别关键帧，窗口里也已经出现 `encoded_video_packets`。后续主动查询复验进一步确认上传路径已实际 remux 成功：`remux_success=1`、`reencode=0`、`input_packets=297`、`output_bytes=1372689`，且 Omni 正常返回答案。
 
