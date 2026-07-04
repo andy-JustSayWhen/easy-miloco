@@ -136,6 +136,8 @@ Web 家庭页还有一条简化注册路径：`/api/identity/persons/{person_id}
 - 光线要足够，模糊、背光、遮挡会降低 sharpness（清晰度）和 confidence（检测置信度）。
 - 如果上传照片失败，先用摄像头录制 3 到 15 秒验证；录制路径能识别时，说明检测模型和身份库链路可用，问题通常在上传素材。
 
+主动注册照片的质量门控比在线陌生人池更宽松：普通路径仍要求 body crop 的 sharpness（清晰度）达标；但自拍照的 body crop 可能很大，包含大量平滑背景和衣服，清晰度分会被稀释。只要同一个人体框里关联到高置信 face，注册路径允许通过，避免把清晰自拍误报为“未识别到人物”。
+
 ### 与其他模块的关系
 
 **上游**：身份识别嵌入在 Identity 层，每次感知周期由 Identity 编排器（`engine/identity/identity.py`）调用，`{track_id → person_id}` 映射写回 `IdentityPacket` 后交给 Omni 层。

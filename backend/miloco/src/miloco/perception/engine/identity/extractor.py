@@ -64,6 +64,11 @@ _GATE_ASPECT_MAX = 2.5
 _GATE_SHARPNESS_MIN = 50.0
 _GATE_DET_CONF_MIN = 0.4
 
+# 主动注册照片常见是手机自拍:人体框里包含大量墙面、衣服和天花板,
+# 整个 body crop 的 Laplacian sharpness 会被平滑区域稀释。若 detector 已经
+# 同时高置信识别到 body + face,不应因为大框 sharpness 一票否决。
+_REGISTRATION_FACE_CONF_MIN = 0.6
+
 # 评分用 sharpness 归一化的"参考值"——超过即视为 1.0,低于按比例
 _SHARPNESS_NORM_REF = 300.0
 
@@ -147,6 +152,27 @@ def _passes_quality_gate(
         and _GATE_ASPECT_MIN <= aspect <= _GATE_ASPECT_MAX
         and sharpness >= _GATE_SHARPNESS_MIN
         and detector_conf >= _GATE_DET_CONF_MIN
+    )
+
+
+def _passes_registration_face_gate(
+    *,
+    area_ratio: float,
+    aspect: float,
+    detector_conf: float,
+    face_conf: float,
+) -> bool:
+    """Manual registration fallback for clear selfie-like photos.
+
+    This deliberately keeps area/aspect/body-confidence checks from the normal
+    gate and only relaxes the full body crop sharpness requirement when a
+    matching face is also confidently detected inside the body box.
+    """
+    return (
+        area_ratio >= _GATE_AREA_RATIO_MIN
+        and _GATE_ASPECT_MIN <= aspect <= _GATE_ASPECT_MAX
+        and detector_conf >= _GATE_DET_CONF_MIN
+        and face_conf >= _REGISTRATION_FACE_CONF_MIN
     )
 
 
@@ -256,12 +282,19 @@ def extract_from_image(
         area_ratio = (body.w * body.h) / frame_area
         aspect = body.w / max(body.h, 1)
         sharp = _compute_sharpness(crop)
-        if not _passes_quality_gate(
+        matched_face = _associate_face_to_body(body, face_dets, face_matcher)
+        face_conf = float(matched_face.confidence) if matched_face is not None else 0.0
+        passes_gate = _passes_quality_gate(
             area_ratio=area_ratio, aspect=aspect,
             sharpness=sharp, detector_conf=body.confidence,
+        )
+        if not passes_gate and not _passes_registration_face_gate(
+            area_ratio=area_ratio,
+            aspect=aspect,
+            detector_conf=float(body.confidence),
+            face_conf=face_conf,
         ):
             continue
-        matched_face = _associate_face_to_body(body, face_dets, face_matcher)
         face_crop = None
         if matched_face is not None:
             face_crop = _crop_with_padding(image, matched_face.bbox)

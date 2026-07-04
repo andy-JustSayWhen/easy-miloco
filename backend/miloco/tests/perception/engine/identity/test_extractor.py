@@ -11,6 +11,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import numpy as np
+from miloco.perception.engine.identity import extractor as extractor_mod
 from miloco.perception.engine.identity.extractor import (
     _compute_sharpness,
     _passes_quality_gate,
@@ -162,6 +163,41 @@ class TestExtractFromImage:
         # 同样 body 但无 face → score 比 face 版小 ~17%
         out_no_face = extract_from_image(frame, detector=_mock_detector([body]))
         assert out[0].score > out_no_face[0].score
+
+    def test_selfie_with_low_body_sharpness_passes_when_face_is_confident(
+        self,
+        monkeypatch,
+    ):
+        """自拍照里 body crop 很大,平滑墙面/衣服会稀释 Laplacian sharpness。
+
+        只要同一 body 内有关联到的高置信 face,主动注册应吐出 body+face 候选,
+        不能把"清晰自拍"误报成"未检测到人物"。
+        """
+        frame = np.full((720, 1280, 3), 128, dtype=np.uint8)
+        monkeypatch.setattr(extractor_mod, "_compute_sharpness", lambda crop: 10.0)
+        body = _MockDet(x=120, y=80, w=520, h=560, confidence=0.95,
+                        class_id=_MockDet.CLASS_HUMAN)
+        face_inside_body = _MockDet(x=250, y=130, w=220, h=240, confidence=0.85,
+                                    class_id=_MockDet.CLASS_FACE)
+
+        out = extract_from_image(
+            frame,
+            detector=_mock_detector([body, face_inside_body]),
+        )
+
+        assert len(out) == 1
+        assert out[0].face_crop is not None
+        assert out[0].sharpness == 10.0
+
+    def test_low_body_sharpness_without_face_still_rejected(self, monkeypatch):
+        frame = np.full((720, 1280, 3), 128, dtype=np.uint8)
+        monkeypatch.setattr(extractor_mod, "_compute_sharpness", lambda crop: 10.0)
+        body = _MockDet(x=120, y=80, w=520, h=560, confidence=0.95,
+                        class_id=_MockDet.CLASS_HUMAN)
+
+        out = extract_from_image(frame, detector=_mock_detector([body]))
+
+        assert out == []
 
     def test_no_body_returns_empty(self):
         frame = _make_frame()
