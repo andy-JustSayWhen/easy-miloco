@@ -2,8 +2,8 @@
  * 用家里 miloco 摄像头录一段 → 上传 /extract。
  *
  * 实现:
- *   1. iframe 嵌 backend 的 /api/miot/watch 仅做"取景器"。用户看到画面 →
- *      知道镜头框住了什么 → 点录制。iframe 不再参与录像本身。
+ *   1. 取景器走 /api/miot/snapshot 轻量 JPEG 快照。用户看到画面 →
+ *      知道镜头框住了什么 → 点录制。预览不再依赖浏览器直播解码。
  *   2. 点录制 → fetch POST /api/miot/record_clip?camera_id&channel&duration_ms,
  *      后端复用已存在的 SDK 订阅(perception 也在 fan-out)→ 拿到第一帧 BGR
  *      就开录 → N 秒后 libx264 flush + mp4 mux 完整返回。
@@ -24,6 +24,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { PerceptionCamera } from "@/lib/types";
 import { authHeaders } from "@/api/register";
+import { cameraSnapshotUrl } from "@/api";
 
 interface Props {
   cameras: PerceptionCamera[];
@@ -51,11 +52,16 @@ export function MiotRecorder({ cameras, onDone, onCancel }: Props) {
   // 用户感觉录制条件不上,但总时长基本固定 ≈ RECORD_SECONDS。
   const [recElapsed, setRecElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [iframeReady, setIframeReady] = useState(false);
+  const [previewReady, setPreviewReady] = useState(false);
+  const [snapshotTick, setSnapshotTick] = useState(() => Date.now());
 
   const channel = 0; // 第一版只用通道 0
-  const watchUrl = selectedDid
-    ? `/api/miot/watch?camera_id=${encodeURIComponent(selectedDid)}&channel=${channel}&embedded=1`
+  const snapshotUrl = selectedDid
+    ? cameraSnapshotUrl(selectedDid, {
+        maxWidth: 960,
+        quality: 72,
+        ts: snapshotTick,
+      })
     : "";
 
   // 录制中允许中止:abort 立即掐断前端 fetch、回到 preview。注意后端 record_clip
@@ -67,9 +73,18 @@ export function MiotRecorder({ cameras, onDone, onCancel }: Props) {
   const unmountedRef = useRef(false);
 
   useEffect(() => {
-    setIframeReady(false);
+    setPreviewReady(false);
+    setSnapshotTick(Date.now());
     setError(null);
   }, [selectedDid]);
+
+  useEffect(() => {
+    if (!selectedDid || stage !== "preview") return;
+    const id = window.setInterval(() => {
+      setSnapshotTick(Date.now());
+    }, 2000);
+    return () => window.clearInterval(id);
+  }, [selectedDid, stage]);
 
   // 录制中每秒计数(纯前端 UI 进度;后端真正的录制时长由 duration_ms 决定)
   useEffect(() => {
@@ -186,14 +201,21 @@ export function MiotRecorder({ cameras, onDone, onCancel }: Props) {
           )}
 
           <div className="rounded-xl overflow-hidden bg-black mb-3 aspect-video relative">
-            {watchUrl && (
-              <iframe
-                src={watchUrl}
-                title={t("account.watchTitle")}
-                className="w-full h-full"
-                style={{ border: "none" }}
-                onLoad={() => setIframeReady(true)}
+            {snapshotUrl && (
+              <img
+                src={snapshotUrl}
+                alt=""
+                aria-hidden="true"
+                className="absolute inset-0 w-full h-full object-contain"
+                draggable={false}
+                onLoad={() => setPreviewReady(true)}
+                onError={() => setPreviewReady(false)}
               />
+            )}
+            {!previewReady && stage === "preview" && (
+              <div className="absolute inset-0 flex items-center justify-center text-text-tertiary text-caption">
+                {t("account.previewLoading")}
+              </div>
             )}
             {stage === "recording" && (
               <>
@@ -238,7 +260,7 @@ export function MiotRecorder({ cameras, onDone, onCancel }: Props) {
           <div className="flex justify-between items-center">
             <div className="text-caption text-text-secondary">
               {stage === "preview"
-                ? iframeReady
+                ? previewReady
                   ? t("account.previewReady")
                   : t("account.previewLoading")
                 : stage === "recording"

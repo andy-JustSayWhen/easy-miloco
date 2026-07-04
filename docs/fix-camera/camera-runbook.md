@@ -22,6 +22,8 @@
 | WebUI 有画面但 OpenClaw 看不到 | `active_sources`、视觉模型配置、OpenClaw 插件状态 |
 | 单个摄像头失败，其他摄像头正常 | 摄像头所在 Wi-Fi、设备固件、设备侧重启 |
 | 所有摄像头失败 | 本机网络、WSL mirrored networking、防火墙、后端 camera service |
+| 身份录入弹窗黑屏，但首页摄像头有快照 | 优先查 `/api/miot/snapshot`，身份录入取景器应走轻量快照，不再依赖直播 iframe |
+| 上传照片提示“未识别到人物” | 先确认照片里有上半身或全身；身份注册需要人体样本，不是只做人脸识别 |
 
 ## 必查命令
 
@@ -37,6 +39,45 @@ miloco-cli service status
 ```bash
 curl -fsS http://127.0.0.1:<miloco_port>/health
 ```
+
+摄像头快照：
+
+```bash
+curl -fsS -o /tmp/miloco-snapshot.jpg \
+  "http://127.0.0.1:<miloco_port>/api/miot/snapshot?camera_id=<did>&max_width=640&quality=72&token=<server_token>"
+ls -lh /tmp/miloco-snapshot.jpg
+```
+
+身份录入短链路：先录一段，再让身份抽取接口找候选人物。这里的 body 是人体样本，face 是人脸样本。
+
+```bash
+curl -fsS -o /tmp/miloco-record.mp4 -X POST \
+  -H "Authorization: Bearer <server_token>" \
+  "http://127.0.0.1:<miloco_port>/api/miot/record_clip?camera_id=<did>&channel=0&duration_ms=3000"
+
+curl -fsS -o /tmp/miloco-extract.json \
+  -H "Authorization: Bearer <server_token>" \
+  -F media=@/tmp/miloco-record.mp4 \
+  -F max_frames=6 \
+  "http://127.0.0.1:<miloco_port>/api/identity/persons/<person_id>/extract"
+
+python - <<'PY'
+import collections
+import json
+
+d = json.load(open("/tmp/miloco-extract.json"))["data"]
+print("frames", d["n_frames"])
+print("candidates", len(d["candidates"]))
+print(collections.Counter(c["type"] for c in d["candidates"]))
+PY
+```
+
+判断：
+
+- 快照 HTTP 200 且文件大于 0：摄像头画面数据能到 Miloco。
+- 录制 HTTP 200 且 MP4 大于 0：后端录制链路能复用摄像头帧。
+- `candidates` 大于 0：身份抽取模型能在当前画面中找到人物。
+- 只有上传照片失败：通常是照片质量或构图问题，要求上半身/全身、脸部清楚、光线足够。
 
 OpenClaw：
 

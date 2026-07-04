@@ -87,3 +87,21 @@ GET /api/miot/watch → watch.html（server.token 注入）
 **上游**：`MIoTVideoStreamManager` 通过 `MiotService.start_video_stream` / `stop_video_stream` 管理 SDK 订阅生命周期。
 
 **共享**：感知流水线和直播共用 `start_camera_decode_video_stream`（`multi_reg=True`）的解码层，两者互不干扰——感知引擎不运行时，直播仍可正常工作。
+
+### 身份录入里的摄像头预览
+
+身份录入弹窗的“摄像头录制”不使用 `/api/miot/watch` iframe 直播作为取景器，而使用 `/api/miot/snapshot` 快照轮询。原因是身份录入真正需要的是“用户能确认人站进画面里”，不需要持续直播解码。
+
+这样做有三个好处：
+
+- 降低低配 NAS 压力：快照是最近一张 JPEG 图片，不会让浏览器额外跑 H.264/H.265 播放链路。
+- 避开浏览器兼容问题：LAN HTTP 下 WebCodecs 不可用时，直播要回退 MSE + jmuxer；取景器走快照更稳定。
+- 不影响录制质量：点“开始录制”后仍由后端 `/api/miot/record_clip` 从摄像头帧录制 MP4，再交给身份抽取接口分析。
+
+排障时要区分三条链路：
+
+| 链路 | 端点 | 用途 |
+| --- | --- | --- |
+| 快照预览 | `/api/miot/snapshot` | 首页卡片和身份录入取景器 |
+| 直播观看 | `/api/miot/watch` + `/api/miot/ws/video_stream` | 用户主动打开实时观看 |
+| 录制注册 | `/api/miot/record_clip` | 身份录入时生成 MP4 |

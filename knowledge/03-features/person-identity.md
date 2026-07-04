@@ -26,6 +26,7 @@
 ### 能力边界
 
 - 识别精度取决于样本质量（图像清晰度、角度多样性）和模型能力
+- 主动录入不是单纯“刷脸”。当前注册会同时保存 body（人体样本，用衣着/体态等视觉特征做 ReID）和 face（人脸样本）。只上传脸部特写、人物太小、太暗或遮挡严重时，可能提示“未识别到人物”。
 - 实时识别依赖感知流水线运行；流水线未启动时识别不工作，但成员管理 API 仍可用
 - 陌生人池（tier_u）全内存，重启即清
 - 每个摄像头持有独立的 IdentityEngine 实例，身份库全局共享；不支持"两台摄像头实时合并同一 track"
@@ -124,6 +125,16 @@ per-camera 识别管线总编排，维护每个 track 的四态识别状态机�
 ### 身份识别相关 API 路径
 
 成员管理：`/api/identity/persons` 前缀（CRUD）；注册流程：`/api/identity/register/preview`（预览）→ `/api/identity/register/commit`（确认写入）；陌生人池：`/api/identity/pool/fetch`。完整端点见 `person/router.py`。
+
+Web 家庭页还有一条简化注册路径：`/api/identity/persons/{person_id}/extract` 抽取候选 body/face，再由 `/api/identity/persons/{person_id}/samples/batch` 写入样本库。摄像头录制入口会先调用 `/api/miot/record_clip` 生成 MP4，再把 MP4 交给 `/extract`。
+
+照片/视频可用性标准：
+
+- 画面里应能看到上半身或全身，而不是只拍脸。
+- 至少有一张正面脸，最好包含正面、侧面、低头或转身等不同姿态。
+- 人物不要太小，身体框在画面中占比过低会被质量门控过滤。
+- 光线要足够，模糊、背光、遮挡会降低 sharpness（清晰度）和 confidence（检测置信度）。
+- 如果上传照片失败，先用摄像头录制 3 到 15 秒验证；录制路径能识别时，说明检测模型和身份库链路可用，问题通常在上传素材。
 
 ### 与其他模块的关系
 
