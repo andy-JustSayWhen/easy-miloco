@@ -67,6 +67,13 @@ ports:
 - Miloco 后端重启后 `/health` 返回 `ok`。Chrome 重新加载 `index-NFjRgGlc.js` 后，小卡片快照为 640x360；点开放大弹窗后无 iframe，放大快照约 1279x720。
 - OpenClaw 报错 `reply session initialization conflicted` 是当前 dashboard 会话的回复锁冲突，不是 Miloco 插件未加载。重启 OpenClaw gateway 后，同一会话发送无隐私测试消息可正常回复 `OK`，冲突错误未再出现。
 
+2026-07-04 09:20 追加复验：
+
+- 用户刷新页面后仍看到“0 个在感知”，但接口实时状态已是 `主卧 电脑桌上 in_use=true connected=true`，`/api/perception/engine/status` 也显示 `active_sources=[1146439633]`。后端日志在 `09:09:30` 先出现 `connection pending`，随后 `09:10` 后已 `n_cam=1` 并持续产生感知结果。
+- 根因不是摄像头没开，也不是 LOW 拉流失败；根因是前端初次读到 `in_use=true connected=false` 后没有自动刷新 scope camera 状态，页面停在“0 个在感知”的旧快照。
+- 当前热修在前端加入短轮询：只要存在 `in_use=true` 且 `connected=false` 的摄像头，就每 2 秒刷新 scope cameras、camera channel 和 status，最多约 90 秒。Chrome 复验加载 `index-B4xA4qAJ.js` 后，页面显示 `1 个在感知`，快照 640x360 正常，无 iframe。
+- OpenClaw 当前会话中的工具执行状态曾污染后续消息，表现为普通文本也被拉进 `miloco-perception` skill。重启 OpenClaw gateway 后，`主卧画面，一句话` 已正常调用 `miloco-cli perceive query --source 1146439633` 并返回“你正坐在书桌前专注地操作电脑”，没有新增会话冲突。
+
 正确修复路径是：
 
 1. 先把当前代码仓库中的性能中心、配置 API、低配参数、视觉可读性修复全部确认可构建。

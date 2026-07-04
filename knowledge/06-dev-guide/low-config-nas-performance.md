@@ -329,3 +329,11 @@ flowchart TD
 1. 摄像头感知优先时，NAS Docker 默认应使用 `network_mode: host`。
 2. 需要绿联云反代/快速访问时，不能直接把主服务切到 bridge/ports 并宣称感知仍可用；应另做外部反代方案，或在 UI/文档里明确“该模式可能牺牲摄像头感知”。
 3. 若现场出现网页正常但“没有摄像头在感知”，第一步检查容器网络：host 网络下 `hostname` 应接近 NAS 主机名，`ip route` 应看到 `192.168.31.0/24`；bridge 网络通常会看到 `172.x` 默认路由。
+
+## 面板 pending 状态刷新结论（2026-07-04）
+
+“0 个在感知”不一定等于后端没有感知。低配模式下摄像头从开关打开到拿到首帧会经历短暂的 `in_use=true connected=false` 状态：`in_use`（用户已启用）为真，但 `connected`（后端已经拿到可用画面）暂时为假。若页面刚好在这个窗口刷新，而之后不再重新拉取 scope camera 状态，就会一直显示“0 个在感知”，即使后端几秒后已经开始处理画面。
+
+2026-07-04 现场复验中，页面停在“0 个在感知”，但接口已返回 `主卧 电脑桌上 in_use=true connected=true`，感知引擎也有 `active_sources=[1146439633]`；后端日志同时显示已持续产出主卧画面描述。正确修复不是反复重启感知，而是前端在存在 `in_use=true && connected=false` 的摄像头时短轮询 scope cameras、camera channel 和 status，直到 `connected=true` 或超时。
+
+OpenClaw 的 `reply session initialization conflicted` 也要按状态污染处理：如果一个 dashboard 会话里工具执行没有干净结束，后续普通文本可能仍被旧的 Miloco perception skill 状态牵引。现场处理方式是重启 OpenClaw gateway 清理运行中会话锁；复验标准不是只看 `/health=live`，而是发送一次真实感知请求，例如“主卧画面，一句话”，确认它能调用 `miloco-cli perceive query` 并返回结果。

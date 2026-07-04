@@ -155,6 +155,26 @@ function MainApp() {
     errorLabel: t("app.loadTasksFail"),
   });
 
+  // 摄像头启用后后端会先进入 connected=false 的连接中状态，等拿到首帧才
+  // 变 connected=true。页面如果只在初次加载时读一次 scopeCameras，就会卡在
+  // “0 个在感知”的旧状态，即使后端几秒后已经开始感知。这里仅在存在
+  // inUse=true 但 connected=false 的摄像头时短轮询，避免常态下制造额外请求。
+  useEffect(() => {
+    const hasPendingCamera = scopeCameras.data?.some(
+      (c) => c.inUse && !c.connected,
+    );
+    if (!hasPendingCamera) return;
+    let attempts = 0;
+    const id = window.setInterval(() => {
+      attempts += 1;
+      scopeCameras.reload();
+      cameras.reload();
+      status.reload();
+      if (attempts >= 45) window.clearInterval(id);
+    }, 2000);
+    return () => window.clearInterval(id);
+  }, [cameras.reload, scopeCameras.data, scopeCameras.reload, status.reload]);
+
   // ── 字号 / 抽屉 / 弹层 ─────────────────────────
   // (原本有 now state + 30s setInterval 给 Sidebar 显示时间，现 Sidebar
   // 已不展示时间；HeroNow 的 cam card 内部各自维护 1min 时钟。)
