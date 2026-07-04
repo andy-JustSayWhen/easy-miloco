@@ -103,6 +103,16 @@ class PerceptionService:
         self._collector.clear_all_buffers()
         logger.info("All perception buffers cleared")
 
+    def peek_latest_frame(self, did: str):
+        """Return the latest decoded BGR frame for a perception source.
+
+        This is a non-consuming read from the realtime perception buffer. It is
+        intentionally used by lightweight UI preview paths so the dashboard can
+        show the current camera image without starting another high-cost video
+        transcode chain.
+        """
+        return self._collector.peek_latest_frame(did)
+
     # ---- Active perception ----
 
     async def _refresh_camera_source_metadata(self) -> None:
@@ -203,7 +213,7 @@ class PerceptionService:
         return OnDemandPerceptionResultItem(
             answer=result.answer,
             timestamp=ms_to_iso_local(now_ms()),
-            video_encode_stats=result.video_encode_stats,
+            video_encode_stats=getattr(result, "video_encode_stats", None),
         )
 
     # ---- Perception logs ----

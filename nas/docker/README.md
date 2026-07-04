@@ -1,6 +1,8 @@
 # NAS Docker 部署
 
-默认使用 Docker Compose bridge 网络，并显式映射两个 WebUI 端口。这样绿联等 NAS 面板的“快速访问”可以直接列出 Miloco 面板和 OpenClaw 对话页。
+默认使用 Docker Compose host 网络。Miloco 的摄像头视频链路依赖局域网内的直连/PPCS/UDP 通道；在绿联 NAS 上实测，改成 bridge 网络并只映射 `1810`、`18789` 虽然能让面板“快速访问”出现入口，但会导致摄像头长期 `connected=false`，感知引擎没有可用画面源。
+
+如果为了绿联云反代或快速访问临时切到端口映射模式，必须明确告知用户：这会牺牲摄像头感知稳定性。需要摄像头感知时，优先恢复 `network_mode: host`。
 
 ## 硬门槛
 
@@ -70,7 +72,7 @@ OpenClaw 聊天模型必须单独填写 `OPENCLAW_CHAT_MODEL`、`OPENCLAW_CHAT_B
 
 在其他电脑或手机上，把 `127.0.0.1` 换成 NAS 的局域网 IP。
 
-容器列表中应看到容器名 `miloco`；快速访问里应出现 `1810` 和 `18789` 两个端口：
+容器列表中应看到容器名 `miloco`。host 网络模式下，部分 NAS 面板不会自动生成快速访问端口，但仍可通过 NAS 局域网 IP 访问：
 
 - `1810`：Miloco 面板
 - `18789`：OpenClaw 对话页

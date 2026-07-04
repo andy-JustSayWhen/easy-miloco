@@ -1034,6 +1034,21 @@ export function realEventClipUrl(
   return token ? `${base}?token=${encodeURIComponent(token)}` : base;
 }
 
+export function realCameraSnapshotUrl(
+  cameraId: string,
+  opts?: { maxWidth?: number; quality?: number; ts?: number },
+): string {
+  const params = new URLSearchParams({
+    camera_id: cameraId,
+    max_width: String(opts?.maxWidth ?? 640),
+    quality: String(opts?.quality ?? 72),
+  });
+  const token = resolveToken();
+  if (token) params.set("token", token);
+  if (opts?.ts) params.set("_", String(opts.ts));
+  return `/api/miot/snapshot?${params.toString()}`;
+}
+
 /**
  * 订阅 `/api/events/stream` SSE,新事件来时 callback `(ActivityEvent)`.
  * 返回 unsubscribe 函数.

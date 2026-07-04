@@ -10,8 +10,10 @@
     "sceneTriggered": "Triggered \"{{name}}\"",
     "sceneTriggerFailed": "Couldn't trigger scene",
     "watchCamera": "Watch {{name}}",
-    "liveView": "{{name}} live view",
+    "liveView": "{{name}} preview",
     "loadingStream": "Loading stream…",
+    "loadingSnapshot": "Waiting for perception image…",
+    "snapshotBadge": "SNAP",
     "close": "Close"
   }
 }

@@ -10,8 +10,10 @@
     "sceneTriggered": "已触发\"{{name}}\"",
     "sceneTriggerFailed": "场景触发失败",
     "watchCamera": "看 {{name}}",
-    "liveView": "{{name}} 实时画面",
+    "liveView": "{{name}} 画面预览",
     "loadingStream": "拉流中…",
+    "loadingSnapshot": "等待感知画面…",
+    "snapshotBadge": "快照",
     "close": "关闭"
   }
 }

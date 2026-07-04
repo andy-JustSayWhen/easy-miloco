@@ -35,6 +35,7 @@ Docker 或虚拟机可以作为绕过 NAS 宿主限制的方式，但容器/虚�
 - 用户自己部署走 [docker-deploy.md](docker-deploy.md)。
 - Agent 自动部署走 [agent-install.md](agent-install.md)。
 - 一句话提示走 [agent-prompt.md](agent-prompt.md)。
+- 低配 NAS 性能优化当前交接状态走 [low-config-performance-current-status.md](low-config-performance-current-status.md)。
 
 ## 一条命令自检
 

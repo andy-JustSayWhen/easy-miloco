@@ -9,6 +9,7 @@
 - macOS：[macos/index.md](macos/index.md)
 - NAS：[nas/index.md](nas/index.md)
 - NAS Docker：[nas/docker-deploy.md](nas/docker-deploy.md)
+- 低配 NAS 性能优化状态：[nas/low-config-performance-current-status.md](nas/low-config-performance-current-status.md)
 - 摄像头：[fix-camera/index.md](fix-camera/index.md)
 - Miloco 资源占用：[miloco资源占用分析报告.md](miloco资源占用分析报告.md)
 - 常见问题：[faq/known-issues.md](faq/known-issues.md)

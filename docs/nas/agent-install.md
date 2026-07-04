@@ -4,7 +4,7 @@
 
 ## 硬规则
 
-1. 默认使用 Docker Compose bridge 网络并映射 `1810`、`18789`，让 NAS 面板快速访问能列出 Miloco 面板和 OpenClaw 对话页。
+1. 默认使用 Docker Compose host 网络。摄像头感知优先于 NAS 面板快速访问；绿联 NAS 上已验证 bridge/ports 模式会让摄像头视频流收不到帧，表现为 `connected=false`、感知引擎 `active_sources=[]`。
 2. 先预检，再启动；不要重复开多个安装容器。
 3. 不把 `.env`、授权 payload、API Key、日志、`data/`、`backups/` 写进 git。
 4. 账号授权和模型配置缺失时，只能报告基础安装就绪，不能报告 FULL_READY。
@@ -100,7 +100,7 @@ Docker 项目显示 running 后，`1810` / `18789` 可能还需要 1-2 分钟恢
 
 如果 `docker compose pull` 成功但日志仍出现旧的 `WSL Miloco validation`、`OpenClaw 直达: http://172...` 或模型缺失，说明 NAS 镜像源命中了旧 tag 缓存。优先切到华为 SWR 固定版本 tag 或等待维护者发布新 tag，不要反复重复拉同一个旧 tag。
 
-容器列表中应看到容器名 `miloco`；快速访问里应出现两个端口：
+容器列表中应看到容器名 `miloco`。host 网络模式下，绿联等 NAS 面板可能不显示快速访问端口，但局域网地址仍可用：
 
 - `1810`：Miloco 面板
 - `18789`：OpenClaw 对话页

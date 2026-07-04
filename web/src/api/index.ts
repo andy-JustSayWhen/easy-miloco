@@ -267,6 +267,14 @@ export function eventClipUrl(event_id: string, device_id: string): string {
   return impl.realEventClipUrl(event_id, device_id);
 }
 
+/** 最近感知画面 JPEG URL,含 ?token=... query 鉴权(<img> 无法设 Authorization). */
+export function cameraSnapshotUrl(
+  cameraId: string,
+  opts?: { maxWidth?: number; quality?: number; ts?: number },
+): string {
+  return impl.realCameraSnapshotUrl(cameraId, opts);
+}
+
 /** 订阅 /api/events/stream SSE;返回 unsubscribe. onOpen 重连成功时触发(可选). */
 export function subscribeEvents(
   onEvent: (e: ActivityEvent) => void,

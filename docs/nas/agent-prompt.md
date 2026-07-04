@@ -10,7 +10,7 @@ https://raw.githubusercontent.com/andy-JustSayWhen/easy-miloco/main/docs/install
 确认目标是 NAS/Linux 后，先按 NAS 硬门槛检查系统、CPU 架构、Docker/Compose、局域网可达性，再进入 NAS Agent Docker 子指南执行。
 
 硬性规则：
-1. NAS 默认走 Docker Compose bridge network，并映射 1810 和 18789，让 NAS 面板快速访问能直达 Miloco 面板和 OpenClaw 对话页；不要裸装。
+1. NAS 默认走 Docker Compose host network，优先保证摄像头感知可用；不要为了 NAS 面板快速访问改成 bridge/ports，绿联 NAS 上该模式会导致摄像头视频流收不到帧。
 2. 进入 nas/docker 后统一使用 ./manage.sh，不要手写零散 docker compose 命令。
 3. 启动前运行 ./manage.sh preflight。
 4. 如果我提供账号授权、API Key、Base URL、Model，写入 nas/docker/.env；不要把 .env、data/、backups/、日志提交到 git。

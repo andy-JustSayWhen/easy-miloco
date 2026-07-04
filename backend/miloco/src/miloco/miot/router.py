@@ -20,6 +20,7 @@ from miloco.manager import get_manager
 from miloco.middleware import (
     BusinessException,
     verify_token,
+    verify_token_query_fallback,
     verify_websocket_token,
 )
 from miloco.middleware.exceptions import HTTPException
@@ -522,6 +523,47 @@ async def toggle_scope_camera(
         [{"did": i.did, "in_use": i.in_use} for i in request.items]
     )
     return NormalResponse(code=0, message="ok", data=data)
+
+
+@router.get(
+    "/snapshot",
+    summary="Latest perception frame as JPEG",
+    dependencies=[Depends(verify_token_query_fallback)],
+)
+async def camera_snapshot(
+    camera_id: str = Query(..., description="MiOT camera did"),
+    max_width: int = Query(
+        640, ge=160, le=1920, description="Max JPEG width in pixels"
+    ),
+    quality: int = Query(72, ge=40, le=95, description="JPEG quality"),
+) -> Response:
+    """Return the latest decoded frame already held by perception.
+
+    This endpoint deliberately reuses the perception buffer instead of opening
+    another camera stream. It is meant for small dashboard cards on low-end NAS
+    hosts where full H.264 browser preview transcode is too expensive.
+    """
+    frame = manager.perception_service.peek_latest_frame(camera_id)
+    if frame is None:
+        raise HTTPException(message="no recent frame", status_code=404)
+
+    import cv2
+
+    img = frame
+    h, w = img.shape[:2]
+    if w > max_width:
+        new_h = max(1, round(h * max_width / w))
+        img = cv2.resize(img, (max_width, new_h), interpolation=cv2.INTER_AREA)
+
+    ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, quality])
+    if not ok:
+        raise HTTPException(message="snapshot encode failed", status_code=500)
+
+    return Response(
+        content=buf.tobytes(),
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 @router.post(
