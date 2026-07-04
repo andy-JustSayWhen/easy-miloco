@@ -49,6 +49,28 @@ NAS 上看到 CPU 或内存高时，先不要只看总数，要判断是哪一�
 
 已有 NAS 样本显示：即使只开一路摄像头，`decode_video_ms` 和 `gate_video_ms` 也可能成为主要压力，而 `omni_ms=0` 时说明当轮没有实际进入 Omni。此时瓶颈通常在本地拉流、解码和 Gate，而不是 LLM API。
 
+## OpenClaw WebChat 并发故障
+
+`reply session initialization conflicted` 的含义是：OpenClaw WebChat（网页聊天入口）在同一个 session（会话，同一段聊天上下文）里同时启动了两次回复。最常见触发方式是上一条还在调用工具或生成回复时，用户又按了一次发送。
+
+这个错误不要优先归因到 Miloco：
+
+- 不是 Miloco 插件未加载。插件是否可用要看 OpenClaw 插件列表、`miloco-cli` 工具调用和主动感知问答。
+- 不是摄像头没画面。摄像头是否在感知要看 Miloco 首页 `1 个在感知`、`/api/perception/engine/status` 的 `active_sources`，以及主动查询能否返回画面描述。
+- 不是 LOW 拉流质量导致。LOW 只降低摄像头码流入口压力，不会制造 WebChat 会话锁冲突。
+
+正确修复点在 OpenClaw 网页聊天入口。后端 retry（重试）只能兜底，不能作为主修复，因为第二条消息可能已经先进入 queue（排队），等前一条结束后仍会继续撞锁。NAS Docker 入口当前采用两层保护：
+
+- 代理层给 OpenClaw HTML 注入发送保护脚本，并对 `/assets/*` 返回 no-store（不缓存），避免浏览器长期使用旧 JS。
+- control-ui 静态 JS 热补：当 `_y(e)` 判断当前聊天仍 busy（上一条仍处理）时，移除第二条队列消息，显示“上一条还在处理，请等回复完成后再发送。”，并记录 `blocked-busy`，而不是继续 `queued-busy`。
+
+验收口径：
+
+- 连续发送两条测试消息时，第二条不应进入聊天历史。
+- 页面应出现中文提示，不应出现 `Queued`。
+- OpenClaw 日志在测试时间之后不应新增 `reply session initialization conflicted` 或 `outcome=error`。
+- 同时核对 Miloco 首页和配置，避免把独立的摄像头状态问题混入 WebChat 并发问题。
+
 ## 已落地的降载能力
 
 - 禁用摄像头后释放对应解码管理器，避免用户以为关了摄像头但后台仍在解码。

@@ -74,6 +74,14 @@ ports:
 - 当前热修在前端加入短轮询：只要存在 `in_use=true` 且 `connected=false` 的摄像头，就每 2 秒刷新 scope cameras、camera channel 和 status，最多约 90 秒。Chrome 复验加载 `index-B4xA4qAJ.js` 后，页面显示 `1 个在感知`，快照 640x360 正常，无 iframe。
 - OpenClaw 当前会话中的工具执行状态曾污染后续消息，表现为普通文本也被拉进 `miloco-perception` skill。重启 OpenClaw gateway 后，`主卧画面，一句话` 已正常调用 `miloco-cli perceive query --source 1146439633` 并返回“你正坐在书桌前专注地操作电脑”，没有新增会话冲突。
 
+2026-07-04 10:18 追加复验：
+
+- OpenClaw WebChat（网页聊天入口）报 `reply session initialization conflicted` 的根因是同一个 session（会话，同一段聊天上下文）里上一条回复还没结束，用户又发送了下一条。它不是 Miloco 插件未加载，也不是摄像头未感知。
+- 只在 OpenClaw 后端加 retry（重试）不够：第二条消息已经先进入 WebChat queue（排队），后续仍可能撞到同一个会话初始化锁。
+- 当前 NAS 热修和仓库固化改为两层保护：代理给 OpenClaw 页面加 no-store（不缓存）和发送提示；同时热补 OpenClaw control-ui 静态 JS，在 busy（上一条仍处理）时移除第二条队列消息并显示“上一条还在处理，请等回复完成后再发送。”
+- Chrome 复验：连续发送 `防连发验证A` 和 `防连发验证B`，第二条没有进入聊天历史，没有出现 `Queued`，页面显示中文提示；10:15 之后 OpenClaw 日志没有新增 `reply session initialization conflicted` 或 `outcome=error`。
+- 同轮核对 Miloco：`/data/miloco/config.json` 保持 `camera.video_quality=LOW`、`frame_interval=5000`、`max_cache_images=2`、`input.fps=1`、`tracking_service_mode=mock`、`identity_engine.enabled=false`；Miloco 首页显示 `1 个在感知`，不是“0 个在感知”。
+
 正确修复路径是：
 
 1. 先把当前代码仓库中的性能中心、配置 API、低配参数、视觉可读性修复全部确认可构建。

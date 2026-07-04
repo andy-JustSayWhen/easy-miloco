@@ -700,6 +700,141 @@ const targetPort = Number(process.env.OPENCLAW_INTERNAL_PORT || "18790");
 const targetHost = "127.0.0.1";
 const token = process.env.OPENCLAW_PROXY_TOKEN || "";
 
+const sendGuardScript = String.raw`
+<script>
+(() => {
+  if (window.__easyMilocoOpenClawSendGuard) return;
+  window.__easyMilocoOpenClawSendGuard = true;
+
+  let busy = false;
+  let busySince = 0;
+  let assistantCountAtSend = 0;
+
+  function pageText() {
+    return document.body ? document.body.innerText || "" : "";
+  }
+
+  function assistantCount() {
+    const matches = pageText().match(/(^|\n)Assistant(\n|$)/g);
+    return matches ? matches.length : 0;
+  }
+
+  function findComposer() {
+    return document.querySelector('textarea[placeholder*="Assistant"]');
+  }
+
+  function findSendButton() {
+    return document.querySelector('button[aria-label="发送消息"], button[aria-label="Send message"]');
+  }
+
+  function upstreamLooksBusy() {
+    const text = pageText();
+    if (text.includes("Queued")) return true;
+    return Array.from(document.querySelectorAll("button")).some((button) => {
+      const label = button.getAttribute("aria-label") || "";
+      return /停止|Stop|Cancel/i.test(label);
+    });
+  }
+
+  function maybeReleaseBusy() {
+    if (!busy) return;
+    const elapsed = Date.now() - busySince;
+    const assistantAdvanced = assistantCount() > assistantCountAtSend;
+    if ((assistantAdvanced && !upstreamLooksBusy() && elapsed > 1500) || elapsed > 180000) {
+      busy = false;
+      busySince = 0;
+      assistantCountAtSend = 0;
+    }
+  }
+
+  function ensureNotice() {
+    let notice = document.getElementById("easy-miloco-openclaw-send-guard");
+    if (notice) return notice;
+    notice = document.createElement("div");
+    notice.id = "easy-miloco-openclaw-send-guard";
+    notice.textContent = "上一条还在处理，请等回复完成后再发送。";
+    notice.style.cssText = [
+      "position:fixed",
+      "left:50%",
+      "bottom:88px",
+      "transform:translateX(-50%)",
+      "z-index:2147483647",
+      "max-width:min(520px,calc(100vw - 32px))",
+      "padding:10px 14px",
+      "border-radius:8px",
+      "background:rgba(17,24,39,.96)",
+      "color:#fff",
+      "font:14px/1.5 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif",
+      "box-shadow:0 8px 24px rgba(0,0,0,.28)",
+      "opacity:0",
+      "pointer-events:none",
+      "transition:opacity .16s ease"
+    ].join(";");
+    document.documentElement.appendChild(notice);
+    return notice;
+  }
+
+  function showNotice() {
+    const notice = ensureNotice();
+    notice.style.opacity = "1";
+    window.clearTimeout(notice.__easyMilocoTimer);
+    notice.__easyMilocoTimer = window.setTimeout(() => {
+      notice.style.opacity = "0";
+    }, 2200);
+  }
+
+  function markBusy() {
+    busy = true;
+    busySince = Date.now();
+    assistantCountAtSend = assistantCount();
+  }
+
+  function shouldBlockSend(event) {
+    const composer = findComposer();
+    const sendButton = findSendButton();
+    if (!composer) return false;
+    if (event.type === "keydown") {
+      return event.key === "Enter" && !event.shiftKey && event.target === composer;
+    }
+    if (event.type === "click" && sendButton) {
+      return event.target === sendButton || sendButton.contains(event.target);
+    }
+    return false;
+  }
+
+  function guard(event) {
+    if (!shouldBlockSend(event)) return;
+    maybeReleaseBusy();
+    if (busy || upstreamLooksBusy()) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      showNotice();
+      return;
+    }
+    markBusy();
+  }
+
+  function renderDisabledState() {
+    maybeReleaseBusy();
+    const locked = busy || upstreamLooksBusy();
+    const sendButton = findSendButton();
+    const composer = findComposer();
+    if (sendButton) {
+      sendButton.style.opacity = locked ? "0.45" : "";
+      sendButton.style.cursor = locked ? "not-allowed" : "";
+      sendButton.title = locked ? "上一条还在处理，请等回复完成后再发送。" : "";
+    }
+    if (composer) {
+      composer.title = locked ? "上一条还在处理，请等回复完成后再发送。" : "";
+    }
+  }
+
+  document.addEventListener("keydown", guard, true);
+  document.addEventListener("click", guard, true);
+  window.setInterval(renderDisabledState, 500);
+})();
+</script>`;
+
 function respondStarting(req, res, message) {
   const isHealth = req.url === "/health" || req.url.startsWith("/health?");
   if (isHealth) {
@@ -787,8 +922,39 @@ const server = http.createServer((req, res) => {
       headers: proxyHeaders(req.headers),
     },
     (upstreamRes) => {
-      res.writeHead(upstreamRes.statusCode || 502, upstreamRes.headers);
-      upstreamRes.pipe(res);
+      const contentType = String(upstreamRes.headers["content-type"] || "");
+      const contentEncoding = String(upstreamRes.headers["content-encoding"] || "");
+      const canInject =
+        req.method === "GET" &&
+        contentType.includes("text/html") &&
+        !contentEncoding;
+      if (!canInject) {
+        const headers = { ...upstreamRes.headers };
+        if (String(req.url || "").startsWith("/assets/")) {
+          headers["cache-control"] = "no-store";
+          delete headers.etag;
+          delete headers["last-modified"];
+        }
+        res.writeHead(upstreamRes.statusCode || 502, headers);
+        upstreamRes.pipe(res);
+        return;
+      }
+
+      const chunks = [];
+      upstreamRes.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+      upstreamRes.on("end", () => {
+        let body = Buffer.concat(chunks).toString("utf8");
+        body = body.includes("</body>")
+          ? body.replace("</body>", `${sendGuardScript}</body>`)
+          : body + sendGuardScript;
+        const headers = { ...upstreamRes.headers };
+        delete headers["content-length"];
+        headers["cache-control"] = "no-store";
+        delete headers.etag;
+        delete headers["last-modified"];
+        res.writeHead(upstreamRes.statusCode || 502, headers);
+        res.end(body);
+      });
     },
   );
   upstream.on("error", (err) => {
@@ -828,10 +994,47 @@ JS
     node "$proxy_file" >/tmp/easy-miloco-openclaw-proxy.log 2>&1 &
 }
 
+patch_openclaw_control_ui_send_guard() {
+  python3 - <<'PY' || warn "Failed to patch OpenClaw control UI send guard."
+from pathlib import Path
+
+root = Path("/usr/local/lib/node_modules/openclaw/dist/control-ui/assets")
+if not root.exists():
+    raise SystemExit(0)
+patched = False
+for path in root.glob("index-*.js"):
+    text = path.read_text(encoding="utf-8")
+    original = text
+    message = "上一条还在处理，请等回复完成后再发送。"
+    send_old = "async function sb(e,t,n){Hu(e),Fs(e);"
+    send_new = "async function sb(e,t,n){if(_y(e)){fy(e,\"上一条还在处理，请等回复完成后再发送。\");return!1}Hu(e),Fs(e);"
+    queue_old = "if(_y(e)){Ny(e,p.id,e=>({...e,sendError:void 0,sendState:void 0})),Ky(e,p,`queued-busy`,a);return}"
+    queue_new = "if(_y(e)){Ry(e,p.id,o),fy(e,\"上一条还在处理，请等回复完成后再发送。\"),Ky(e,p,`blocked-busy`,a);return}"
+    if send_old in text:
+        text = text.replace(send_old, send_new, 1)
+    if queue_old in text:
+        text = text.replace(queue_old, queue_new, 1)
+    if text == original:
+        if message in text and "blocked-busy" in text:
+            patched = True
+            continue
+        continue
+    backup = Path(str(path) + ".bak-miloco-send-guard")
+    if not backup.exists():
+        backup.write_text(original, encoding="utf-8")
+    path.write_text(text, encoding="utf-8")
+    patched = True
+    print(f"patched OpenClaw control UI send guard: {path}")
+if not patched:
+    raise SystemExit("OpenClaw control UI send guard patch target not found")
+PY
+}
+
 prepare_openclaw_public_proxy() {
   log "Preparing OpenClaw public proxy"
   configure_openclaw_chat_model
   configure_openclaw_gateway
+  patch_openclaw_control_ui_send_guard
   start_openclaw_proxy
 }
 
