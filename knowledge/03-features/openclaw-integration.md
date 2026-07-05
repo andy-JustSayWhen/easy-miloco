@@ -163,6 +163,8 @@ before_prompt_build Hook（plugins/openclaw/src/hooks/prompt.ts）
 - **优先级淘汰**：队列超长时，按类型级优先级 → 条目级优先级 → 最旧顺序淘汰
 - 四类事件（interaction / bind / rule / suggestion）分三条 session 路由：interaction 与 bind 共用主会话（同一 session_key / lane，但属不同合并类型、各自单飞不混入同一 turn），rule、suggestion 各一条；session_key 常量见 `dispatch/dispatcher.py`
 
+**通知出口保护**：OpenClaw 仍负责判断是否调用 `miloco-notify` / 设备 TTS，但后端 MIoT 出口还有最后一道闸门。`miot/anti_spam.py` 会静默拦截 status-only 消息（状态说明：例如误报、已恢复、已修复，并明确“不用担心/无需处理”），避免自动修复类文本刷手机推送或小爱播报；同时对相同米家推送和相同 `call_action`（设备动作，例如小爱播报）做短窗口去重。真正需要用户处理的告警不应写成 status-only 文案，否则会被拦截。
+
 ### 如果我要添加/修改 Skill
 
 修改步骤、构建命令和 Skill 标准结构见 [开发指南 · 场景三：添加或修改 Skill](../06-dev-guide/dev-guide.md#场景三添加或修改-skill)。Skill 通过 `miloco-cli` 向后端发请求，鉴权通过 `Authorization: Bearer <token>` 头传递。调试日志：`$MILOCO_HOME/log/openclaw-plugin.log`。

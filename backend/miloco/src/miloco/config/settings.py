@@ -220,6 +220,16 @@ class MiotSettings(BaseModel):
         default="https://127.0.0.1",
         description="Xiaomi OAuth redirect_uri; must match the URI used for token exchange",
     )
+    notify_dedupe_seconds: int = Field(
+        default=1800,
+        ge=0,
+        description="米家 App 推送去重窗口（秒）；0 表示不去重。",
+    )
+    call_action_dedupe_seconds: int = Field(
+        default=300,
+        ge=0,
+        description="MIoT call_action 重复动作去重窗口（秒）；0 表示不去重。",
+    )
 
 
 class CameraSettings(BaseModel):

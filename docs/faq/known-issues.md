@@ -69,6 +69,25 @@
 - 日志中看到 `Camera LAN override ignored because SDK LAN table has no hit` 属于预期保护行为。
 - 相关测试：`backend/miloco/tests/test_miot_filter_and_cameras.py`。
 
+## 误报修复类消息不应刷米家推送或小爱播报
+
+现象：
+
+- 手机收到多条相同的米家推送，例如“水浸卫士误报了一次……不用担心”。
+- 小爱音箱也可能重复播报同类“已处理、无需担心”的文本。
+
+原因：
+
+- OpenClaw Agent 或自动修复链路可能把“状态说明”当成通知执行。
+- 这类内容不是告警，也不需要用户处理，不能用手机推送或音箱播报打扰用户。
+
+处理：
+
+- 后端 MIoT 出口会静默拦截 status-only 消息（状态说明：例如误报、已恢复、已修复，并明确“不用担心/无需处理”）。
+- 真正需要用户处理的告警仍允许通知，例如“客厅检测到水浸，请立即检查”。
+- 同一米家推送文案默认 30 分钟内只发送一次；同一 `call_action`（设备动作，例如小爱播报）默认 5 分钟内只执行一次。
+- 日志中看到 `Suppressed status-only Mi Home notification` 或 `Suppressed status-only MIoT call_action` 属于预期保护。
+
 ## 本地 Python 缺少 tzdata 导致测试收集失败
 
 现象：

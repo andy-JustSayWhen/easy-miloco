@@ -24,6 +24,12 @@ from miloco.middleware import (
     verify_websocket_token,
 )
 from miloco.middleware.exceptions import HTTPException
+from miloco.miot.anti_spam import (
+    is_status_only_call_action,
+    is_status_only_message,
+    should_suppress_call_action,
+    should_suppress_notify,
+)
 from miloco.miot.schema import (
     AuthorizeRequest,
     CameraToggleRequest,
@@ -276,6 +282,34 @@ async def control_device(
         did,
         request.type,
     )
+    if is_status_only_call_action(request):
+        logger.warning(
+            "Suppressed status-only MIoT call_action did=%s iid=%s params=%s user=%s",
+            did,
+            request.iid,
+            request.params,
+            current_user,
+        )
+        return NormalResponse(
+            code=0,
+            message="Status-only device action suppressed",
+            data={"suppressed": True, "reason": "status_only"},
+        )
+    if should_suppress_call_action(
+        did, request, get_settings().miot.call_action_dedupe_seconds
+    ):
+        logger.warning(
+            "Suppressed duplicate MIoT call_action did=%s iid=%s params=%s user=%s",
+            did,
+            request.iid,
+            request.params,
+            current_user,
+        )
+        return NormalResponse(
+            code=0,
+            message="Duplicate device action suppressed",
+            data={"suppressed": True},
+        )
     data = await manager.miot_service.control_device(did, request)
     return NormalResponse(
         code=0, message="Device control executed successfully", data=data
@@ -471,6 +505,28 @@ async def send_notify(
     logger.info(
         "Send notify API called, notify: %s, user: %s", request.notify, current_user
     )
+    if is_status_only_message(request.notify):
+        logger.warning(
+            "Suppressed status-only Mi Home notification notify=%s user=%s",
+            request.notify,
+            current_user,
+        )
+        return NormalResponse(
+            code=0,
+            message="Status-only notification suppressed",
+            data={"suppressed": True, "reason": "status_only"},
+        )
+    if should_suppress_notify(request.notify, get_settings().miot.notify_dedupe_seconds):
+        logger.warning(
+            "Suppressed duplicate Mi Home notification notify=%s user=%s",
+            request.notify,
+            current_user,
+        )
+        return NormalResponse(
+            code=0,
+            message="Duplicate notification suppressed",
+            data={"suppressed": True},
+        )
     await manager.miot_service.send_notify(request.notify)
     return NormalResponse(code=0, message="Notification sent successfully", data=None)
 
