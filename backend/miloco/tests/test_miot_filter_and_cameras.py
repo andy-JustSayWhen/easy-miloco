@@ -360,6 +360,29 @@ async def test_list_cameras_with_state_lan_online_recovers_stale_cloud_status():
 
 
 @pytest.mark.asyncio
+async def test_list_cameras_with_state_includes_stream_health_when_available():
+    kv = _FakeKV({ScopeConfigKeys.HOME_WHITE_LIST_KEY: json.dumps(["H1"])})
+    svc = _make_service(
+        devices={"c1": _camera("c1", home_id="H1")},
+        cameras={"c1": _camera("c1", home_id="H1", online=True, lan_online=False)},
+        kv=kv,
+    )
+    svc._camera_stream_health_by_did = lambda: {  # type: ignore[assignment]
+        "c1": {
+            "state": "cooling_down",
+            "message": "60 秒内没有收到第一张画面。",
+            "retry_after_sec": 120,
+        }
+    }
+
+    out = await svc.list_cameras_with_state()
+
+    assert out[0]["stream_state"] == "cooling_down"
+    assert out[0]["stream_message"] == "60 秒内没有收到第一张画面。"
+    assert out[0]["retry_after_sec"] == 120
+
+
+@pytest.mark.asyncio
 async def test_list_cameras_with_state_surfaces_unsupported_camera_family_models():
     kv = _FakeKV({ScopeConfigKeys.HOME_WHITE_LIST_KEY: json.dumps(["H1"])})
     svc = _make_service(

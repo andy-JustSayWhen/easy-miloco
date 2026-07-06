@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import math
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -145,6 +146,7 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
         self._last_connect_fail_ms: dict[str, int] = {}
         self._first_frame_cooldown_until_ms: dict[str, int] = {}
         self._first_frame_failure_counts: dict[str, int] = {}
+        self._stream_health: dict[str, dict[str, Any]] = {}
 
     @staticmethod
     def _nested_dict(root: Any, *keys: str) -> dict:
@@ -376,11 +378,30 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
                     self._first_frame_cooldown_until_ms[did] = (
                         now_ms + _FIRST_FRAME_FAILURE_COOLDOWN_MS
                     )
+                    self._set_stream_health(
+                        did,
+                        state="cooling_down",
+                        message=(
+                            "摄像头已订阅，但 60 秒内没有收到第一张画面；"
+                            "系统正在冷却后重试，避免一直占用 NAS。"
+                        ),
+                        retry_after_sec=math.ceil(
+                            _FIRST_FRAME_FAILURE_COOLDOWN_MS / 1000
+                        ),
+                    )
                     action = (
                         "dropping false connected state and cooling down for "
                         f"{_FIRST_FRAME_FAILURE_COOLDOWN_MS / 1000:.0f}s"
                     )
                 else:
+                    self._set_stream_health(
+                        did,
+                        state="no_first_frame_retrying",
+                        message=(
+                            "摄像头已订阅，但 60 秒内没有收到第一张画面；"
+                            "正在重建底层摄像头连接。"
+                        ),
+                    )
                     action = (
                         "rebuilding stream manager "
                         f"(first-frame failure {first_frame_failures}/"
@@ -399,12 +420,24 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
                     did,
                     (now_ms - state.last_video_frame_ms) / 1000,
                 )
+                self._set_stream_health(
+                    did,
+                    state="stale_video",
+                    message="摄像头画面中断超过 30 秒，正在重连。",
+                )
             await self.disconnect_device(did)
             if should_cooldown_first_frame:
                 continue
             await self._rebuild_camera_stream_manager(did)
 
     def _cached_camera_has_lan_hint(self, did: str) -> bool:
+        has_lan_override = getattr(self._miot_proxy, "has_camera_lan_override", None)
+        if callable(has_lan_override):
+            try:
+                if has_lan_override(did) is True:
+                    return True
+            except Exception:  # noqa: BLE001
+                pass
         get_cached_camera = getattr(self._miot_proxy, "get_cached_camera", None)
         if not callable(get_cached_camera):
             return False
@@ -418,6 +451,43 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
             return True
         local_ip = getattr(camera_info, "local_ip", None)
         return isinstance(local_ip, str) and bool(local_ip.strip())
+
+    def _set_stream_health(
+        self,
+        did: str,
+        *,
+        state: str,
+        message: str,
+        retry_after_sec: int | None = None,
+    ) -> None:
+        health: dict[str, Any] = {
+            "state": state,
+            "message": message,
+            "updated_at_ms": _unix_ms(),
+        }
+        if retry_after_sec is not None:
+            health["retry_after_sec"] = max(0, int(retry_after_sec))
+        self._stream_health[did] = health
+
+    def get_stream_health(self, did: str | None = None) -> dict[str, dict[str, Any]]:
+        """Return last camera stream health details for UI diagnostics."""
+        now_ms = _monotonic_ms()
+        if did is None:
+            items = list(self._stream_health.items())
+        elif did in self._stream_health:
+            items = [(did, self._stream_health[did])]
+        else:
+            items = []
+
+        out: dict[str, dict[str, Any]] = {}
+        for item_did, health in items:
+            entry = dict(health)
+            cooldown_until = self._first_frame_cooldown_until_ms.get(item_did, 0)
+            if cooldown_until > now_ms:
+                entry["state"] = "cooling_down"
+                entry["retry_after_sec"] = math.ceil((cooldown_until - now_ms) / 1000)
+            out[item_did] = entry
+        return out
 
     async def _rebuild_camera_stream_manager(self, did: str) -> None:
         rebuild = getattr(self._miot_proxy, "rebuild_camera_stream_manager", None)
@@ -439,11 +509,18 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
         now_ms = _monotonic_ms()
         cooldown_until = self._first_frame_cooldown_until_ms.get(did, 0)
         if cooldown_until > now_ms:
+            retry_after_sec = math.ceil((cooldown_until - now_ms) / 1000)
+            self._set_stream_health(
+                did,
+                state="cooling_down",
+                message="刚才 60 秒没有收到摄像头第一张画面，正在等一会儿再重试。",
+                retry_after_sec=retry_after_sec,
+            )
             logger.warning(
                 "Camera %s is cooling down after no decoded first frame; "
                 "retry in %.0fs",
                 did,
-                (cooldown_until - now_ms) / 1000,
+                retry_after_sec,
             )
             return
         if cooldown_until:
@@ -472,6 +549,11 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
             connected_at_ms=_monotonic_ms(),
         )
         self._devices[did] = state
+        self._set_stream_health(
+            did,
+            state="waiting_first_frame",
+            message="摄像头开关已打开，正在等待第一张可分析画面。",
+        )
 
         # Subscribe decoded video frame stream (multi-reg)
         try:
@@ -513,6 +595,11 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
         if state.decoded_video_reg_id < 0 and state.decoded_audio_reg_id < 0:
             self._devices.pop(did, None)
             self._last_connect_fail_ms[did] = _monotonic_ms()
+            self._set_stream_health(
+                did,
+                state="subscribe_failed",
+                message="底层摄像头连接没有建起来，系统会在下一轮自动重试。",
+            )
             logger.warning(
                 "Camera %s stream subscribe failed (manager missing?), "
                 "will retry on next sync",
@@ -874,6 +961,7 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
                 self._first_frame_cooldown_until_ms.pop(did, None)
                 self._first_frame_failure_counts.pop(did, None)
                 self._last_connect_fail_ms.pop(did, None)
+                self._stream_health.pop(did, None)
                 state.sync_buffer.put(
                     "decoded_video", decoded, stream_ts=ts, wall_ms=wall_ms
                 )

@@ -195,6 +195,8 @@ function CameraSection({
   const enableableDids = scopeCameras
     .filter((c) => !c.inUse && c.isOnline)
     .map((c) => c.did);
+  const pendingCams = scopeCameras.filter((c) => c.inUse && !c.connected);
+  const primaryPending = pendingCams.find((c) => c.streamMessage) ?? pendingCams[0];
   // bulkBusy 锁防"全开/全关"连点;singleBusyDids 跟踪单卡 in-flight,让住户切单卡 A
   // 时只 disable A 卡,B/C/D 仍可点。bulk 操作进行时仍 disable 所有(防交叠)。
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -295,7 +297,20 @@ function CameraSection({
             </div>
           ) : (
             <div className="text-body rounded-lg bg-bg-primary border border-dashed border-border-strong text-text-secondary py-6 px-5 text-center">
-              {t("hero.noStreaming")}
+              {primaryPending ? (
+                <div className="space-y-1">
+                  <div className="text-warning">
+                    {t("hero.noStreamingPendingTitle", {
+                      name: primaryPending.name,
+                    })}
+                  </div>
+                  <div>
+                    {cameraStreamMessage(primaryPending, t)}
+                  </div>
+                </div>
+              ) : (
+                t("hero.noStreaming")
+              )}
             </div>
           )}
           {/* 下区:未投喂给 miloco 的相机(未启用 / 超出上限)。不拉流、不展示小窗，
@@ -433,6 +448,11 @@ function BenchCamItem({
             {cam.roomName}
           </div>
         )}
+        {cam.inUse && !cam.connected && (
+          <div className="text-caption text-warning truncate">
+            {cameraStreamMessage(cam, t)}
+          </div>
+        )}
       </div>
       <CamSwitch
         inUse={cam.inUse}
@@ -452,4 +472,21 @@ function SectionLabel({ children }: { children: ReactNode }) {
       {children}
     </div>
   );
+}
+
+function cameraStreamMessage(
+  cam: ScopeCamera,
+  t: ReturnType<typeof useTranslation>["t"],
+) {
+  if (cam.streamMessage) {
+    const retry =
+      cam.retryAfterSec && cam.retryAfterSec > 0
+        ? t("hero.streamRetryAfter", { seconds: cam.retryAfterSec })
+        : "";
+    return `${cam.streamMessage}${retry}`;
+  }
+  if (cam.inUse && !cam.connected) {
+    return t("hero.streamWaitingFirstFrame");
+  }
+  return "";
 }

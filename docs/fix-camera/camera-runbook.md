@@ -19,6 +19,7 @@
 | --- | --- |
 | 米家 App 正常，Miloco 设备列表为空 | 账号授权、home 选择、MIoT token |
 | 设备在线但摄像头无画面 | 局域网、视频数据面、scope 是否启用 |
+| 首页显示“已开启，但还没拿到画面” | 摄像头开关已保存，优先查后端是否收到第一张可解码画面，而不是反复开关 |
 | WebUI 有画面但 OpenClaw 看不到 | `active_sources`、视觉模型配置、OpenClaw 插件状态 |
 | 单个摄像头失败，其他摄像头正常 | 摄像头所在 Wi-Fi、设备固件、设备侧重启 |
 | 所有摄像头失败 | 本机网络、WSL mirrored networking、防火墙、后端 camera service |
@@ -39,6 +40,23 @@ miloco-cli service status
 ```bash
 curl -fsS http://127.0.0.1:<miloco_port>/health
 ```
+
+感知状态：
+
+```bash
+curl -fsS -H "Authorization: Bearer <server_token>" \
+  http://127.0.0.1:<miloco_port>/api/perception/engine/status
+
+curl -fsS -H "Authorization: Bearer <server_token>" \
+  http://127.0.0.1:<miloco_port>/api/miot/scope/cameras
+```
+
+判断：
+
+- `in_use=true` 且 `connected=false`：开关已开启，但后端还没拿到可用于感知的视频帧。
+- `active_sources=[]`：当前没有摄像头正在给感知引擎投喂画面。
+- `stream_state` / `stream_message` 有值：优先按后端返回的中文原因排查，例如等待首帧、首帧超时、冷却后重试。
+- 如果连续 60 秒没有第一张画面，后端会先重建底层摄像头连接；如果仍失败，再进入冷却，避免低配 NAS 被无效重试拖垮。
 
 摄像头快照：
 

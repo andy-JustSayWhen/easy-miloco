@@ -925,6 +925,9 @@ interface BackendScopeCamera {
   is_online: boolean;
   in_use: boolean;
   connected: boolean;
+  stream_state?: string | null;
+  stream_message?: string | null;
+  retry_after_sec?: number | null;
 }
 
 export async function realListScopeCameras(): Promise<ScopeCamera[]> {
@@ -938,6 +941,9 @@ export async function realListScopeCameras(): Promise<ScopeCamera[]> {
     isOnline: c.is_online,
     inUse: c.in_use,
     connected: c.connected,
+    streamState: c.stream_state ?? undefined,
+    streamMessage: c.stream_message ?? undefined,
+    retryAfterSec: c.retry_after_sec ?? undefined,
   }));
 }
 

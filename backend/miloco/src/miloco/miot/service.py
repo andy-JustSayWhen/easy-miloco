@@ -974,6 +974,7 @@ class MiotService:
                 continue
             unsupported[did] = info
         out: list[dict] = []
+        stream_health = self._camera_stream_health_by_did()
         for did, info in cameras.items():
             cloud_online = bool(getattr(info, "online", False))
             lan_online = bool(getattr(info, "lan_online", False))
@@ -982,18 +983,23 @@ class MiotService:
             # multi-interface WSL hosts, but still accept a positive LAN hit as
             # fresh evidence when Xiaomi cloud metadata is stale false.
             online = cloud_online or lan_online or did in connected
-            out.append(
-                {
-                    "did": did,
-                    "name": getattr(info, "name", None),
-                    # 透 room_name 让前端能在多摄像头家庭显示"客厅 / 卧室"区分——
-                    # 米家默认相机名常是"小米智能摄像机 2 代"等泛称，光看 name 难辨。
-                    "room_name": getattr(info, "room_name", None),
-                    "is_online": online,
-                    "in_use": did not in denied,
-                    "connected": did in connected,
-                }
-            )
+            item = {
+                "did": did,
+                "name": getattr(info, "name", None),
+                # 透 room_name 让前端能在多摄像头家庭显示"客厅 / 卧室"区分——
+                # 米家默认相机名常是"小米智能摄像机 2 代"等泛称，光看 name 难辨。
+                "room_name": getattr(info, "room_name", None),
+                "is_online": online,
+                "in_use": did not in denied,
+                "connected": did in connected,
+            }
+            health = stream_health.get(did)
+            if health:
+                item["stream_state"] = health.get("state")
+                item["stream_message"] = health.get("message")
+                if health.get("retry_after_sec") is not None:
+                    item["retry_after_sec"] = health.get("retry_after_sec")
+            out.append(item)
         for did, info in unsupported.items():
             out.append(
                 {
@@ -1116,6 +1122,17 @@ class MiotService:
     def _connected_camera_dids(self) -> set[str]:
         adapter = self._camera_adapter()
         return set(adapter.get_connected_devices().keys()) if adapter else set()
+
+    def _camera_stream_health_by_did(self) -> dict:
+        adapter = self._camera_adapter()
+        get_stream_health = getattr(adapter, "get_stream_health", None)
+        if not callable(get_stream_health):
+            return {}
+        try:
+            return get_stream_health()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Camera stream health lookup failed: %s", e)
+            return {}
 
     async def _sync_camera_adapter(self) -> None:
         """Hot-sync camera connections after a scope change."""

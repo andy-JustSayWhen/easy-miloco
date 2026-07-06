@@ -145,6 +145,31 @@ class TestConnectDeviceManagerMissing:
         proxy.stop_camera_decode_video_stream.assert_awaited_once_with("cam1", 0, 9)
         proxy.rebuild_camera_stream_manager.assert_awaited_once_with("cam1")
 
+    def test_no_first_frame_with_configured_lan_override_rebuilds(self, monkeypatch):
+        proxy = MagicMock()
+        proxy.stop_camera_decode_video_stream = AsyncMock()
+        proxy.rebuild_camera_stream_manager = AsyncMock(return_value=True)
+        proxy.has_camera_lan_override = MagicMock(return_value=True)
+        proxy.get_cached_camera = MagicMock(return_value=None)
+        adapter = CameraDeviceAdapter(miot_proxy=proxy)
+        state = _CameraDeviceState(did="cam1")
+        state.decoded_video_reg_id = 9
+        state.connected_at_ms = 100_000
+        adapter._devices["cam1"] = state
+        monkeypatch.setattr(
+            "miloco.perception.collect.camera_adapter._monotonic_ms",
+            lambda: 160_000,
+        )
+
+        asyncio.run(adapter._drop_unhealthy_devices())
+
+        assert "cam1" not in adapter._devices
+        assert adapter.get_stream_health("cam1")["cam1"]["state"] == (
+            "no_first_frame_retrying"
+        )
+        proxy.stop_camera_decode_video_stream.assert_awaited_once_with("cam1", 0, 9)
+        proxy.rebuild_camera_stream_manager.assert_awaited_once_with("cam1")
+
     def test_repeated_no_first_frame_with_lan_hint_cools_down(self, monkeypatch):
         proxy = MagicMock()
         proxy.stop_camera_decode_video_stream = AsyncMock()

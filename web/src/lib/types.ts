@@ -187,6 +187,9 @@ export interface ScopeCamera {
   isOnline: boolean;
   inUse: boolean;
   connected: boolean;
+  streamState?: string;
+  streamMessage?: string;
+  retryAfterSec?: number;
 }
 
 // ── 米家家庭接入范围(scope.homes)─────────────────────────────────

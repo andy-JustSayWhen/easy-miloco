@@ -746,6 +746,10 @@ class MiotProxy:
             overrides[did_str] = ip_str
         return overrides
 
+    def has_camera_lan_override(self, did: str) -> bool:
+        """Return whether a per-camera LAN IP override exists for this did."""
+        return str(did).strip() in self._get_camera_lan_overrides()
+
     async def _prime_camera_lan_overrides(
         self, cameras: dict[str, MIoTCameraInfo]
     ) -> None:
