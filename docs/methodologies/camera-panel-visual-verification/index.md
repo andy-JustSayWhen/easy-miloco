@@ -8,6 +8,14 @@
 
 - [NAS 上小米摄像头底层通道不吐帧，改用外部桥接流并修复面板假空态](cases/nas-xiaomi-external-stream-panel-fix.md)
 
+相关方法论来源：
+
+- 摄像头状态分层：[../../fix-camera/cameras.md](../../fix-camera/cameras.md)
+- 摄像头六层排障：[../../fix-camera/camera-runbook.md](../../fix-camera/camera-runbook.md)
+- denylist 误拦截修复：[../../fix-camera/camera-denylist-auto-fix-guide.md](../../fix-camera/camera-denylist-auto-fix-guide.md)
+- 低配 NAS 性能与快照预览经验：[../../nas/low-config-performance-current-status.md](../../nas/low-config-performance-current-status.md)
+- 研发故障排查入口：[../../../knowledge/06-dev-guide/troubleshooting.md](../../../knowledge/06-dev-guide/troubleshooting.md)
+
 ## 适用场景
 
 | 场景 | 是否适用 |
@@ -23,14 +31,15 @@
 ```mermaid
 flowchart TD
   A["米家 App 可预览"] --> B["云端账号与设备在线"]
-  B --> C["NAS 能访问摄像头所在网络"]
-  C --> D["Miloco 后端拿到视频帧"]
-  D --> E["快照接口返回图片"]
-  E --> F["Web 面板渲染出画面"]
-  F --> G["OpenClaw 视觉问答可用"]
+  B --> C["家庭与摄像头 scope 已选中"]
+  C --> D["NAS 能访问摄像头所在网络"]
+  D --> E["原生 SDK 或外部桥接流拿到视频帧"]
+  E --> F["快照接口返回图片"]
+  F --> G["Web 面板渲染出画面"]
+  G --> H["OpenClaw 视觉问答可用"]
 
-  B -. "不能证明" .-> D
-  D -. "不能证明" .-> F
+  B -. "不能证明" .-> E
+  E -. "不能证明" .-> G
 ```
 
 术语说明：
@@ -48,17 +57,54 @@ flowchart TD
 - `connected=true`：后端已经拿到摄像头视频帧。
 - `in_use=true`：用户允许 Miloco 使用这台摄像头。
 - `camera_id`：接口里用来指定哪台摄像头的参数。
+- scope：使用范围，可以理解成“Miloco 被允许看哪些家庭、哪些摄像头”。
+- keyframe：关键帧，视频里能独立解出来的一张完整画面。
+- iframe：网页里嵌入另一个页面的小窗。
+- BGR：图片在程序里的彩色像素格式，常见于 OpenCV（图像处理工具）。
+- naturalWidth：浏览器记录的图片真实宽度，大于 0 说明图片确实加载出来。
+- direct SDK probe：直接探测底层摄像头工具，绕过网页和普通开关，看它到底有没有吐视频帧。
+- raw/JPEG/frame：三种“有没有画面数据”的计数；raw 是原始视频包，JPEG 是图片，frame 是解码后的画面。
+- host 网络：容器直接使用宿主机网络，像程序跑在 NAS 本机上一样，更容易收到摄像头视频流。
+- LAN override：手动指定摄像头局域网地址，用来修复自动发现不到 IP 的情况。
+
+## 相关方法论地图
+
+| 方法论 | 解决的问题 | 关键动作 | 本文如何吸收 |
+| --- | --- | --- | --- |
+| 状态分层法 | “在线/离线”一个词太粗，容易误判 | 拆成云端在线、局域网在线、流连接、Agent 可用 | 本文增加“前端渲染”层，避免 `connected=true` 后提前收工 |
+| 六层排障法 | 摄像头问题容易直接重装或乱改 | 按账号、设备、scope、局域网、流连接、OpenClaw 排查 | 本文把“面板真实画面”放到流连接之后、OpenClaw 之前 |
+| 字段组合法 | “已开启但 0 个在感知”原因不止一种 | 联合看 `in_use`、`connected`、`stream_state`、快照 | 本文要求页面也展示连接中或失败原因，不再只有空态 |
+| direct SDK probe 法 | 判断是不是原生 SDK 不吐帧 | 绕过 UI 和 scope，直接看 raw/JPEG/frame 计数 | 本文把它作为“米家 App 能看但 Miloco 没帧”的分水岭 |
+| denylist 修复法 | 机型被误拦截导致不能启用 | 只有 probe 出帧后才移出 denylist | 本文禁止用改 UI 或伪造 `connected=true` 代替真实帧 |
+| 外部桥接流法 | 原生 SDK 长期不吐帧 | 用 go2rtc / RTSP 先产出可消费视频流 | 本文把桥接流纳入验收链路，仍要求面板显示真实画面 |
+| 低配快照预览法 | 首页直播小窗给 NAS 增加负载 | 首页和录入取景器优先用 JPEG 快照 | 本文把快照作为面板视觉验收的默认低负载路径 |
+| 浏览器视觉验收法 | 后端成功但用户页面仍空 | 用截图、DOM、图片尺寸确认真实渲染 | 本文把它定为最终验收，而不是可选检查 |
 
 ## 固定排查顺序
 
 | 层级 | 要确认什么 | 典型证据 | 不足以证明什么 |
 | --- | --- | --- | --- |
 | 米家侧 | 摄像头在米家 App 里能看 | 手机 App 可预览 | 不能证明 NAS 上的 Miloco 能拿到帧 |
+| 账号与 scope | Miloco 已绑定账号，且目标家庭/摄像头在使用范围内 | 账号状态、设备列表、摄像头 scope | 不能证明视频通道已经通 |
 | 网络侧 | NAS 与摄像头网络可达 | 摄像头局域网地址、同网段、容器网络模式 | 不能证明底层 SDK 已吐帧 |
+| 视频通道侧 | 原生 SDK 或外部桥接流能产出帧 | raw/JPEG/frame 计数、go2rtc 生产者 | 不能证明 Miloco 已消费 |
 | 后端侧 | Miloco 已收到可解码视频帧 | `connected=true`、转接服务有消费者、快照接口 200 | 不能证明浏览器已经显示 |
 | 接口侧 | 快照接口能返回真实图片 | `/api/miot/snapshot` 返回 `image/jpeg` | 不能证明页面状态没有卡住 |
 | 前端侧 | 面板已渲染图片 | 截图里有画面、图片 `naturalWidth` 大于 0 | 这才接近用户验收 |
 | Agent 侧 | OpenClaw 可用画面回答 | 视觉问答描述真实画面 | 不能替代 Miloco 面板验收 |
+
+## 症状路由表
+
+| 用户看到的现象 | 不要先做什么 | 正确下一步 |
+| --- | --- | --- |
+| 米家 App 能看，Miloco 没画面 | 不要直接宣布摄像头正常 | 查 scope、`lan_online`、`connected`、快照和短录制 |
+| 摄像头开关已开，但首页 0 个在感知 | 不要反复让用户开关 | 联合看 `in_use=true`、`connected=false`、`stream_state` 和页面轮询 |
+| `connected=true`，但首页仍空 | 不要只重启后端 | 查快照接口、前端静态资源、图片加载和浏览器缓存 |
+| 首页有快照，身份录入黑屏 | 不要改摄像头链路 | 让身份录入取景器走同一快照路径，避免直播 iframe |
+| Web 面板有画面，OpenClaw 看不到 | 不要改面板 | 查 `active_sources`、视觉模型配置和插件状态 |
+| 名称显示“当前机型暂不支持感知” | 不要直接改 UI 文案 | 先做 direct SDK probe；出帧才允许修 denylist |
+| 原生 SDK 一直 raw/JPEG/frame 都是 0 | 不要继续堆 LAN override | 转外部桥接流，或换已验证可出帧摄像头 |
+| 低配 NAS 页面卡首帧 | 不要把首页改成常驻直播 | 用 JPEG 快照兜底，降低转码和解码压力 |
 
 ## 关键判断
 
@@ -83,11 +129,30 @@ flowchart TD
 | 根因 | 修复方向 |
 | --- | --- |
 | 容器网络隔离导致收不到视频帧 | 恢复 host 网络或确保视频通道能进容器 |
+| 摄像头不在启用 scope 中 | 先切家庭或启用目标摄像头，不要改视频层 |
+| denylist 误拦截 | direct SDK probe 证明出帧后再移除拦截 |
 | 原生 SDK 不吐帧 | 用 go2rtc / RTSP 网关提供外部桥接流 |
 | 桥接流可用但 Miloco 没消费 | 配置 `camera.external_streams` 并重启后端 |
 | 后端有帧但面板空态 | 前端展示逻辑不要只依赖单一状态字段，已开启在线摄像头应先显示卡片并拉快照 |
 | 快照接口失败 | 查感知缓冲、鉴权 token、目标 `camera_id` 和最近帧缓存 |
 | 浏览器仍旧页面 | 强制刷新并确认新静态资源文件名 |
+
+## 证据阶梯
+
+排障报告必须说明自己停在哪一级，不要把低级证据包装成高级验收。
+
+| 等级 | 证据 | 结论力度 |
+| --- | --- | --- |
+| L0 | 米家 App 能看 | 摄像头和账号大概率没坏 |
+| L1 | Miloco 能列出设备和摄像头 | 账号、家庭和设备同步基本可用 |
+| L2 | `in_use=true` | 用户允许 Miloco 使用这台摄像头 |
+| L3 | `connected=true` 或桥接流有消费者 | 后端可能已经拿到视频帧 |
+| L4 | `/api/miot/snapshot` 返回有效 JPEG | 后端已有可展示画面 |
+| L5 | 页面显示 `1 个在感知` 且图片尺寸大于 0 | Web 面板状态和图片加载正确 |
+| L6 | 浏览器截图里有真实画面 | 用户侧视觉验收通过 |
+| L7 | OpenClaw 能基于画面回答 | Agent 视觉链路通过 |
+
+本文的最低交付等级是 L6；如果任务还包含 OpenClaw 视觉能力，才要求 L7。
 
 ## 验收清单
 
