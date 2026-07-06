@@ -61,7 +61,8 @@ def _is_camera_family_model(model: str | None) -> bool:
 _NO_NATIVE_FRAME_CAMERA_MODELS = {
     "chuangmi.camera.061a01": (
         "这台摄像头已在线且开关已开启，但当前 Miloco 底层视频通道没有吐出可分析画面。"
-        "这不是开关问题；请先使用上传照片/视频录入身份，或换一台已验证能出帧的摄像头。"
+        "这不是开关问题，不能作为 Miloco 感知源；请先使用上传照片/视频录入身份，"
+        "或换一台已验证能出帧的摄像头。"
     )
 }
 
@@ -1067,17 +1068,19 @@ class MiotService:
                 if health.get("retry_after_sec") is not None:
                     item["retry_after_sec"] = health.get("retry_after_sec")
             hint = _camera_stream_hint(info)
-            if (
-                item["in_use"]
-                and not item["connected"]
-                and hint
-                and item.get("stream_state")
-                in {
-                    None,
-                    "waiting_first_frame",
-                    "no_first_frame_retrying",
-                    "cooling_down",
-                }
+            if hint and (
+                (
+                    item["in_use"]
+                    and not item["connected"]
+                    and item.get("stream_state")
+                    in {
+                        None,
+                        "waiting_first_frame",
+                        "no_first_frame_retrying",
+                        "cooling_down",
+                    }
+                )
+                or hint["state"] == "native_stream_no_frames"
             ):
                 item["stream_state"] = hint["state"]
                 item["stream_message"] = hint["message"]

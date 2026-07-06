@@ -99,6 +99,8 @@ curl -fsS -H "Authorization: Bearer <server_token>" \
 - 三台摄像头均 `is_set_pincode=0`，排除 PIN 导致的鉴权失败。
 - direct SDK probe 对照：`chuangmi.camera.021a04` 与 `chuangmi.camera.036a02` 约 2 秒内分别拿到 raw/JPG；同账号、同 NAS、同 LOW 画质下，`chuangmi.camera.061a01` 在 `channel_count=1` / `channel_count=2` 均为 raw=0、JPG=0，状态停留在 CONNECTING。
 - 启动 SDK 后再调用 `stop-stream` / `start-p2p-stream` 返回 code=0，但仍 raw=0、JPG=0；排除“动作触发时机”导致的不出帧。
+- 官方 `v2026.7.3` 发行包里的 `libmiot_camera_lite.so` 与 NAS 当前运行库 sha256 前缀同为 `82c4b30a9838c797`，排除“公开最新版 SDK 还没升级”这一层。
+- `HIGH` 画质、`LOW + enable_audio=True` 两种额外启动参数仍为 raw=0、JPG=0、audio=0，排除“画质参数或音频握手”导致的不出帧。
 - 运行态修复应先把 Miloco scope 切到已验证能出帧的摄像头，例如同房间 `450305034`。切换后需验证 `connected=true` 且 `/api/miot/snapshot` 返回 `image/jpeg`。
 
 当前处理口径：

@@ -89,7 +89,7 @@ miloco 通过 PPCS P2P 协议拉取摄像头码流，底层依赖 UDP。摄像�
 - 旧版 MIoT SDK 是否缺少 raw packet 注册/注销 API。缺少时不能让 manager destroy 中断，必须继续执行底层 camera evict，否则自动重建会复用脏实例。
 - `ping` 命令缺失会污染网络探测日志，但如果 LAN 单点探测已经返回目标 DID/IP，它不是“0 帧”的充分解释。
 
-已知机型 `chuangmi.camera.061a01`：在 `on@摄像机控制=true`、LAN 可达、LOW 画质、host 网络、无 PIN、回调先注册、`stop-stream` / `start-p2p-stream` 均成功的情况下，仍会出现底层 SDK 不吐 raw/JPG/frame。2026-07-06 NAS 对照 probe 显示，同账号同环境下 `chuangmi.camera.021a04` 和 `chuangmi.camera.036a02` 约 2 秒出 raw/JPG，只有 `061a01` 在 `channel_count=1/2` 均为 0。后端应返回 `stream_state=native_stream_no_frames`，并拒绝重新启用该型号作为感知源；前端显示“底层视频通道未出帧”，不要再归因到“没有打开开关”。
+已知机型 `chuangmi.camera.061a01`：在 `on@摄像机控制=true`、LAN 可达、LOW/HIGH 画质、host 网络、无 PIN、回调先注册、`stop-stream` / `start-p2p-stream` 均成功的情况下，仍会出现底层 SDK 不吐 raw/JPG/frame。2026-07-06 NAS 对照 probe 显示，同账号同环境下 `chuangmi.camera.021a04` 和 `chuangmi.camera.036a02` 约 2 秒出 raw/JPG，只有 `061a01` 在 `channel_count=1/2` 均为 0；`LOW + enable_audio=True` 仍 raw=0、JPG=0、audio=0。官方 `v2026.7.3` 发行包里的 `libmiot_camera_lite.so` 与 NAS 当前运行库 sha256 前缀同为 `82c4b30a9838c797`，所以不要把它归因成“没升级公开最新版 SDK”。后端应返回 `stream_state=native_stream_no_frames`，并拒绝重新启用该型号作为感知源；前端显示“底层视频通道未出帧”，不要再归因到“没有打开开关”。
 
 ### 诊断
 

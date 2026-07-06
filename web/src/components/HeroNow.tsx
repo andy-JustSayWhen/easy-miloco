@@ -193,7 +193,12 @@ function CameraSection({
   // (offline_enable 校验),若把离线 did 也塞进批量 enable,会连带在线的一起失败。
   // 与下区单台开关「离线不可开」同口径。
   const enableableDids = scopeCameras
-    .filter((c) => !c.inUse && c.isOnline)
+    .filter(
+      (c) =>
+        !c.inUse &&
+        c.isOnline &&
+        c.streamState !== "native_stream_no_frames",
+    )
     .map((c) => c.did);
   const pendingCams = scopeCameras.filter((c) => c.inUse && !c.connected);
   const primaryPending = pendingCams.find((c) => c.streamMessage) ?? pendingCams[0];
@@ -333,6 +338,7 @@ function CameraSection({
                     disabled={
                       bulkBusy ||
                       singleBusyDids.has(c.did) ||
+                      c.streamState === "native_stream_no_frames" ||
                       (!c.inUse && (!c.isOnline || atCapacity))
                     }
                     onToggle={(v) => runSingle(c.did, v)}
@@ -448,7 +454,7 @@ function BenchCamItem({
             {cam.roomName}
           </div>
         )}
-        {cam.inUse && !cam.connected && (
+        {(cam.streamMessage || (cam.inUse && !cam.connected)) && (
           <div className="text-caption text-warning leading-snug">
             {cameraStreamMessage(cam, t)}
           </div>

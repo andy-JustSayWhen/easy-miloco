@@ -372,6 +372,29 @@ async def test_list_cameras_with_state_lan_online_recovers_stale_cloud_status():
 
 
 @pytest.mark.asyncio
+async def test_list_cameras_with_state_keeps_no_frame_hint_when_disabled():
+    kv = _FakeKV(
+        {
+            ScopeConfigKeys.HOME_WHITE_LIST_KEY: json.dumps(["H1"]),
+            ScopeConfigKeys.CAMERA_BLACK_LIST_KEY: json.dumps(["c1"]),
+        }
+    )
+    svc = _make_service(
+        devices={"c1": _camera("c1", home_id="H1")},
+        cameras={"c1": _camera("c1", home_id="H1", local_ip="192.168.31.104")},
+        kv=kv,
+    )
+    svc._miot_proxy.get_cameras.return_value["c1"].model = "chuangmi.camera.061a01"
+
+    out = await svc.list_cameras_with_state()
+
+    assert out[0]["in_use"] is False
+    assert out[0]["connected"] is False
+    assert out[0]["stream_state"] == "native_stream_no_frames"
+    assert "不能作为 Miloco 感知源" in out[0]["stream_message"]
+
+
+@pytest.mark.asyncio
 async def test_list_cameras_with_state_includes_stream_health_when_available():
     kv = _FakeKV({ScopeConfigKeys.HOME_WHITE_LIST_KEY: json.dumps(["H1"])})
     svc = _make_service(
