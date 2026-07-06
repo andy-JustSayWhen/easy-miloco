@@ -13,7 +13,9 @@
 - 摄像头：[fix-camera/index.md](fix-camera/index.md)
 - Miloco 资源占用：[miloco资源占用分析报告.md](miloco资源占用分析报告.md)
 - 常见问题：[faq/known-issues.md](faq/known-issues.md)
-- 方法论：[methodologies/notification-side-effect-guard/index.md](methodologies/notification-side-effect-guard/index.md)
+- 方法论：
+  - [通知类副作用保护](methodologies/notification-side-effect-guard/index.md)
+  - [摄像头面板画面修复与验收](methodologies/camera-panel-visual-verification/index.md)
 
 ## Agent 入口
 
