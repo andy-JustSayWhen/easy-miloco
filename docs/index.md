@@ -13,6 +13,7 @@
 - 摄像头：[fix-camera/index.md](fix-camera/index.md)
 - Miloco 资源占用：[miloco资源占用分析报告.md](miloco资源占用分析报告.md)
 - 常见问题：[faq/known-issues.md](faq/known-issues.md)
+- 方法论：[methodologies/notification-side-effect-guard/index.md](methodologies/notification-side-effect-guard/index.md)
 
 ## Agent 入口
 
@@ -35,6 +36,7 @@ Agent 先读 [AGENT.md](AGENT.md)，再按系统进入：
 | `fix-camera/` | 摄像头接入、感知、denylist 和视频流排障文档 |
 | `macos/` | macOS 一键包和 Agent 指南 |
 | `nas/` | NAS 部署硬门槛、Docker Compose 部署和后续适配入口 |
+| `methodologies/` | 可复用的问题分析、修复和验证方法论 |
 | `scripts/` | release 包复用的预检、收尾、验收和发布脚本 |
 | `runbooks/` | 通用发版、排障和 NAS 安装说明 |
 
