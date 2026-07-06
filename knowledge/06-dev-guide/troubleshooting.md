@@ -91,6 +91,24 @@ miloco 通过 PPCS P2P 协议拉取摄像头码流，底层依赖 UDP。摄像�
 
 已知机型 `chuangmi.camera.061a01`：在 `on@摄像机控制=true`、LAN 可达、LOW/HIGH 画质、host 网络、无 PIN、回调先注册、`stop-stream` / `start-p2p-stream` 均成功的情况下，仍会出现底层 SDK 不吐 raw/JPG/frame。2026-07-06 NAS 对照 probe 显示，同账号同环境下 `chuangmi.camera.021a04` 和 `chuangmi.camera.036a02` 约 2 秒出 raw/JPG，只有 `061a01` 在 `channel_count=1/2` 均为 0；`LOW + enable_audio=True` 仍 raw=0、JPG=0、audio=0。官方 `v2026.7.3` 发行包里的 `libmiot_camera_lite.so` 与 NAS 当前运行库 sha256 前缀同为 `82c4b30a9838c797`，所以不要把它归因成“没升级公开最新版 SDK”。后端应返回 `stream_state=native_stream_no_frames`，并拒绝重新启用该型号作为感知源；前端显示“底层视频通道未出帧”，不要再归因到“没有打开开关”。
 
+如果这类机型已经配置 `camera.external_streams.<did>`，则不再按“原生通道不可用”永久拒绝：后端返回 `stream_state=external_stream_configured`，开关允许打开，预览、录入和感知统一订阅外部桥接流。桥接流地址应由 go2rtc、RTSP 摄像头或其他网关提供；Miloco 只消费已存在的视频流，不负责凭空生成小米私有流凭据。
+
+最小配置示例：
+
+```json
+{
+  "camera": {
+    "video_quality": "LOW",
+    "external_stream_frame_interval": 1000,
+    "external_streams": {
+      "<did>": "rtsp://127.0.0.1:8554/<stream>"
+    }
+  }
+}
+```
+
+验收时必须看到目标摄像头 `connected=true`，并通过首页实时画面或 `/api/miot/snapshot` 确认有真实画面；只看到 `external_stream_configured` 还不算修复完成。
+
 ### 诊断
 
 ```bash

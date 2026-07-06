@@ -28,6 +28,11 @@ from miloco.middleware.exceptions import (
     ValidationException,
 )
 from miloco.miot.client import MiotProxy, build_sub_device_names
+from miloco.miot.external_stream import (
+    external_camera_stream_manager,
+    get_external_stream_url,
+    has_external_stream,
+)
 from miloco.miot.filter import (
     MAX_ENABLED_CAMERAS,
     allowed_home_ids,
@@ -113,6 +118,15 @@ def _camera_stream_hint(info: MIoTCameraInfo) -> dict[str, str] | None:
     camera_status = str(getattr(camera_status_raw, "value", camera_status_raw) or "")
 
     if cloud_online and model in _NO_NATIVE_FRAME_CAMERA_MODELS:
+        did = str(_camera_info_value(info, "did") or "")
+        if did and has_external_stream(did):
+            return {
+                "state": "external_stream_configured",
+                "message": (
+                    "这台摄像头的原生视频通道不吐帧，已配置外部桥接视频流；"
+                    "打开开关后 Miloco 会改用桥接流取画面。"
+                ),
+            }
         return {
             "state": "native_stream_no_frames",
             "message": _NO_NATIVE_FRAME_CAMERA_MODELS[model],
@@ -675,6 +689,10 @@ class MiotService:
                     camera_id,
                 )
                 return -1
+            if get_external_stream_url(camera_id):
+                return await external_camera_stream_manager.start_decoded_video_stream(
+                    camera_id, channel, callback
+                )
             return await self._miot_proxy.start_camera_decode_video_stream(
                 camera_id, channel, callback
             )
@@ -691,6 +709,8 @@ class MiotService:
                 "Stopping decoded video stream: camera_id=%s, reg_id=%d",
                 camera_id, reg_id,
             )
+            if await external_camera_stream_manager.stop_decoded_video_stream(reg_id):
+                return
             await self._miot_proxy.stop_camera_decode_video_stream(
                 camera_id, channel, reg_id
             )
@@ -1135,6 +1155,7 @@ class MiotService:
                 d
                 for d in enable_dids
                 if getattr(cameras[d], "model", None) in _NO_NATIVE_FRAME_CAMERA_MODELS
+                and not has_external_stream(d)
             ]
             if no_frame_enable:
                 detail = ", ".join(

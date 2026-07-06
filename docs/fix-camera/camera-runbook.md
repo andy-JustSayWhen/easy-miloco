@@ -106,10 +106,45 @@ curl -fsS -H "Authorization: Bearer <server_token>" \
 当前处理口径：
 
 - 后端 `scope camera list` 返回 `stream_state=native_stream_no_frames`，不要再提示用户“打开开关开启感知”。
-- 后端应拒绝把该型号重新启用为感知源，避免单摄像头家庭反复进入“没有摄像头在感知”的状态。
+- 如果没有外部桥接流，后端应拒绝把该型号重新启用为感知源，避免单摄像头家庭反复进入“没有摄像头在感知”的状态。
+- 如果已经配置外部桥接流，后端应返回 `stream_state=external_stream_configured`，并允许启用；预览、录入和感知统一改用桥接流。
 - 前端应显示“底层视频通道未出帧”的原因，避免误导用户反复开关。
 - 身份录入先走上传照片/视频路径，或换一台已验证可出帧的摄像头。
 - 不要把米家 App 能看画面当成 Miloco 已可感知的证据；App 可能走云端或不同视频通道。
+
+### 外部桥接流兜底
+
+当目标摄像头在米家 App 能看、但 Miloco 原生 SDK 始终 `raw=0`、`JPG=0`、`frame=0` 时，可以给该摄像头配置外部桥接流。桥接流只解决“视频帧如何进入 Miloco”，不负责替用户拿到小米私有通道凭据；上游可以是 go2rtc、已开放 RTSP 的摄像头、或其他能输出 HTTP/MJPEG/RTSP 的网关。
+
+配置写入 `$MILOCO_HOME/config.json`：
+
+```json
+{
+  "camera": {
+    "video_quality": "LOW",
+    "external_stream_frame_interval": 1000,
+    "external_streams": {
+      "<camera_did>": "rtsp://127.0.0.1:8554/<stream_name>"
+    }
+  }
+}
+```
+
+字段含义：
+
+- `external_streams`：按摄像头 DID 映射到外部视频流地址。
+- `external_stream_frame_interval`：外部流投喂给 Miloco 的最小帧间隔，低配 NAS 建议从 `1000` 毫秒开始。
+- `video_quality=LOW`：保留低画质配置，避免原生路径或其他摄像头被误切回高负载。
+
+验证顺序：
+
+1. 重启后端。
+2. `miloco-cli scope camera list --pretty` 中目标摄像头应显示 `stream_state=external_stream_configured`。
+3. 打开该摄像头开关。
+4. 等待首帧后，目标摄像头应变成 `connected=true`。
+5. 用 `/api/miot/snapshot` 或首页实时画面确认 Miloco 已拿到真实画面。
+
+如果桥接流地址不可达，状态会停留在“等待第一张可分析画面”。这时不要再反复切开关，先用 ffmpeg、ffprobe 或 go2rtc 页面验证桥接流本身是否可播放。
 
 排除项：
 

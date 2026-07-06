@@ -395,6 +395,25 @@ async def test_list_cameras_with_state_keeps_no_frame_hint_when_disabled():
 
 
 @pytest.mark.asyncio
+async def test_list_cameras_with_state_uses_external_stream_hint(monkeypatch):
+    kv = _FakeKV({ScopeConfigKeys.HOME_WHITE_LIST_KEY: json.dumps(["H1"])})
+    svc = _make_service(
+        devices={"c1": _camera("c1", home_id="H1")},
+        cameras={"c1": _camera("c1", home_id="H1", local_ip="192.168.31.104")},
+        kv=kv,
+    )
+    svc._miot_proxy.get_cameras.return_value["c1"].model = "chuangmi.camera.061a01"
+    monkeypatch.setattr(
+        "miloco.miot.service.has_external_stream", lambda did: did == "c1"
+    )
+
+    out = await svc.list_cameras_with_state()
+
+    assert out[0]["stream_state"] == "external_stream_configured"
+    assert "桥接视频流" in out[0]["stream_message"]
+
+
+@pytest.mark.asyncio
 async def test_list_cameras_with_state_includes_stream_health_when_available():
     kv = _FakeKV({ScopeConfigKeys.HOME_WHITE_LIST_KEY: json.dumps(["H1"])})
     svc = _make_service(
@@ -1113,6 +1132,63 @@ def test_camera_stream_hint_reports_native_no_frames_for_chuangmi_061a01():
     assert hint is not None
     assert hint["state"] == "native_stream_no_frames"
     assert "底层视频通道没有吐出" in hint["message"]
+
+
+def test_camera_stream_hint_reports_external_stream_for_chuangmi_061a01(monkeypatch):
+    cam = SimpleNamespace(
+        did="c1",
+        online=True,
+        lan_online=True,
+        local_ip="192.168.31.104",
+        model="chuangmi.camera.061a01",
+        camera_status="2",
+    )
+    monkeypatch.setattr(
+        "miloco.miot.service.has_external_stream", lambda did: did == "c1"
+    )
+
+    hint = _camera_stream_hint(cam)
+
+    assert hint is not None
+    assert hint["state"] == "external_stream_configured"
+    assert "桥接视频流" in hint["message"]
+
+
+@pytest.mark.asyncio
+async def test_toggle_camera_allows_no_frame_model_when_external_stream_configured(
+    monkeypatch,
+):
+    kv = _FakeKV({ScopeConfigKeys.HOME_WHITE_LIST_KEY: json.dumps(["H1"])})
+    cam = _camera("c1", home_id="H1", local_ip="192.168.31.104")
+    cam.model = "chuangmi.camera.061a01"
+    svc = _make_service(devices={"c1": cam}, cameras={"c1": cam}, kv=kv)
+    monkeypatch.setattr(
+        "miloco.miot.service.has_external_stream", lambda did: did == "c1"
+    )
+
+    out = await svc.toggle_camera([{"did": "c1", "in_use": True}])
+
+    assert out[0]["did"] == "c1"
+    assert out[0]["in_use"] is True
+
+
+@pytest.mark.asyncio
+async def test_start_video_stream_uses_external_stream_manager(monkeypatch):
+    svc = _make_service()
+    callback = AsyncMock()
+    manager = SimpleNamespace(
+        start_decoded_video_stream=AsyncMock(return_value=100_000_001),
+    )
+    monkeypatch.setattr(
+        "miloco.miot.service.get_external_stream_url",
+        lambda did: "rtsp://127.0.0.1/test",
+    )
+    monkeypatch.setattr("miloco.miot.service.external_camera_stream_manager", manager)
+
+    reg_id = await svc.start_video_stream("c1", 0, callback)
+
+    assert reg_id == 100_000_001
+    manager.start_decoded_video_stream.assert_awaited_once_with("c1", 0, callback)
 
 
 @pytest.mark.asyncio

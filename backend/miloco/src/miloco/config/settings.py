@@ -252,6 +252,24 @@ class CameraSettings(BaseModel):
         default="HIGH",
         description="默认摄像头拉流质量（LOW/HIGH）；单摄像头覆盖仍可通过 workspace/camera_video_quality_overrides.json 设置",
     )
+    external_streams: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "摄像头外部桥接流映射，key 为摄像头 did，value 为 RTSP/HTTP/MJPEG 等视频流地址。"
+            "用于当前 MIoT 原生视频通道不吐帧的机型。"
+        ),
+    )
+    external_stream_frame_interval: int = Field(
+        default=1000,
+        ge=200,
+        description="外部桥接流投喂给 Miloco 的最小帧间隔（毫秒）。",
+    )
+    external_stream_reconnect_seconds: int = Field(
+        default=5,
+        ge=1,
+        le=300,
+        description="外部桥接流断开后的重连等待时间（秒）。",
+    )
 
 
 class RuleSettings(BaseModel):

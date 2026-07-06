@@ -23,6 +23,10 @@ from miot.types import MIoTCameraCodec, MIoTCameraFrameType, MIoTCameraInfo
 
 from miloco.config import get_settings
 from miloco.miot.client import MiotProxy
+from miloco.miot.external_stream import (
+    external_camera_stream_manager,
+    get_external_stream_url,
+)
 from miloco.miot.schema import CameraInfo
 from miloco.node_monitor import NodeName, get_monitor
 from miloco.perception.collect.adapter_base import BaseDeviceAdapter
@@ -117,6 +121,7 @@ class _CameraDeviceState:
     decoded_video_reg_id: int = -1
     decoded_audio_reg_id: int = -1
     raw_packet_reg_id: int = -1
+    video_stream_source: str = "miot"
     encoded_video_packets: deque[EncodedVideoPacket] = field(
         default_factory=lambda: deque(maxlen=_ENCODED_VIDEO_PACKET_MAXLEN)
     )
@@ -555,19 +560,35 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
             message="摄像头开关已打开，正在等待第一张可分析画面。",
         )
 
-        # Subscribe decoded video frame stream (multi-reg)
-        try:
-            reg_id = await self._miot_proxy.start_camera_decode_video_stream(
-                did, DEFAULT_VIDEO_CHANNEL, self._make_decoded_video_callback(did)
-            )
-            state.decoded_video_reg_id = reg_id
-        except Exception as e:
-            logger.error("Failed to subscribe decoded video for %s: %s", did, e)
+        external_url = get_external_stream_url(did)
+        if external_url:
+            try:
+                reg_id = await external_camera_stream_manager.start_decoded_video_stream(
+                    did, DEFAULT_VIDEO_CHANNEL, self._make_decoded_video_callback(did)
+                )
+                state.decoded_video_reg_id = reg_id
+                state.video_stream_source = "external"
+                self._set_stream_health(
+                    did,
+                    state="external_stream_connecting",
+                    message="这台摄像头正在使用外部桥接视频流，等待第一张可分析画面。",
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.error("Failed to subscribe external video for %s: %s", did, e)
+        else:
+            # Subscribe decoded video frame stream (multi-reg)
+            try:
+                reg_id = await self._miot_proxy.start_camera_decode_video_stream(
+                    did, DEFAULT_VIDEO_CHANNEL, self._make_decoded_video_callback(did)
+                )
+                state.decoded_video_reg_id = reg_id
+            except Exception as e:
+                logger.error("Failed to subscribe decoded video for %s: %s", did, e)
 
         start_raw_packet_stream = getattr(
             self._miot_proxy, "start_camera_raw_packet_stream", None
         )
-        if inspect.iscoroutinefunction(start_raw_packet_stream):
+        if not external_url and inspect.iscoroutinefunction(start_raw_packet_stream):
             try:
                 reg_id = await start_raw_packet_stream(
                     did, DEFAULT_VIDEO_CHANNEL, self._make_raw_packet_callback(did)
@@ -579,7 +600,7 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
         # Realtime home perception currently needs video frames. Some Xiaomi
         # cameras repeatedly emit undecodable G711A audio frames, which can
         # destabilize the backend while adding no value to visual camera status.
-        if _camera_audio_perception_enabled():
+        if not external_url and _camera_audio_perception_enabled():
             try:
                 reg_id = await self._miot_proxy.start_camera_decode_audio_stream(
                     did, DEFAULT_AUDIO_CHANNEL, self._make_decoded_audio_callback(did)
@@ -616,9 +637,14 @@ class CameraDeviceAdapter(BaseDeviceAdapter):
 
         if state.decoded_video_reg_id >= 0:
             try:
-                await self._miot_proxy.stop_camera_decode_video_stream(
-                    did, DEFAULT_VIDEO_CHANNEL, state.decoded_video_reg_id
-                )
+                if state.video_stream_source == "external":
+                    await external_camera_stream_manager.stop_decoded_video_stream(
+                        state.decoded_video_reg_id
+                    )
+                else:
+                    await self._miot_proxy.stop_camera_decode_video_stream(
+                        did, DEFAULT_VIDEO_CHANNEL, state.decoded_video_reg_id
+                    )
             except Exception as e:
                 logger.error("Failed to unsubscribe decoded video for %s: %s", did, e)
 

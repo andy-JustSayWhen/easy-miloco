@@ -95,6 +95,20 @@ class _StreamProxy(_Proxy):
         self.raw_packet_stopped = (did, channel, reg_id)
 
 
+class _ExternalStreamManager:
+    def __init__(self):
+        self.started = None
+        self.stopped = None
+
+    async def start_decoded_video_stream(self, did, channel, callback):
+        self.started = (did, channel, callback)
+        return 100_000_001
+
+    async def stop_decoded_video_stream(self, reg_id):
+        self.stopped = reg_id
+        return True
+
+
 class TestCacheFrameSize:
     def test_cache_frame_max_size_reads_identity_input_config(self, monkeypatch):
         from miloco.perception.collect import camera_adapter
@@ -275,6 +289,47 @@ class TestCallbackIntegration:
         asyncio.run(adapter.disconnect_device("cam1"))
 
         assert proxy.raw_packet_stopped == ("cam1", 0, 3)
+
+    def test_connect_device_uses_external_stream_when_configured(self, monkeypatch):
+        proxy = _StreamProxy(_CachedCamera(name="cache-name", room_name="cache-room"))
+        manager = _ExternalStreamManager()
+        adapter = CameraDeviceAdapter(miot_proxy=proxy)  # type: ignore[arg-type]
+        monkeypatch.setattr(
+            "miloco.perception.collect.camera_adapter.get_external_stream_url",
+            lambda did: "rtsp://127.0.0.1/cam1",
+        )
+        monkeypatch.setattr(
+            "miloco.perception.collect.camera_adapter.external_camera_stream_manager",
+            manager,
+        )
+
+        asyncio.run(adapter.connect_device("cam1", source=object()))  # type: ignore[arg-type]
+
+        state = adapter._devices["cam1"]
+        assert state.video_stream_source == "external"
+        assert state.decoded_video_reg_id == 100_000_001
+        assert proxy.raw_packet_started is None
+        assert manager.started is not None
+        assert manager.started[:2] == ("cam1", 0)
+
+    def test_disconnect_device_stops_external_stream(self, monkeypatch):
+        proxy = _StreamProxy(_CachedCamera(name="cache-name", room_name="cache-room"))
+        manager = _ExternalStreamManager()
+        adapter = CameraDeviceAdapter(miot_proxy=proxy)  # type: ignore[arg-type]
+        monkeypatch.setattr(
+            "miloco.perception.collect.camera_adapter.get_external_stream_url",
+            lambda did: "rtsp://127.0.0.1/cam1",
+        )
+        monkeypatch.setattr(
+            "miloco.perception.collect.camera_adapter.external_camera_stream_manager",
+            manager,
+        )
+
+        asyncio.run(adapter.connect_device("cam1", source=object()))  # type: ignore[arg-type]
+        asyncio.run(adapter.disconnect_device("cam1"))
+
+        assert manager.stopped == 100_000_001
+        assert proxy.raw_packet_stopped is None
 
     def test_raw_packet_callback_records_codec_and_keyframe(self, monkeypatch):
         adapter, state = self._make_adapter_with_device()
