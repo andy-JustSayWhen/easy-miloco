@@ -794,6 +794,24 @@ class MiotProxy:
                 continue
             lan_info = lan_devices.get(did)
             if lan_info is None:
+                ip_matches = [
+                    (lan_did, info)
+                    for lan_did, info in lan_devices.items()
+                    if getattr(info, "ip", None) == ip
+                ]
+                if len(ip_matches) == 1:
+                    matched_did, matched_info = ip_matches[0]
+                    if matched_did in cameras and matched_did != did:
+                        logger.warning(
+                            "Camera LAN override ignored because ip belongs to "
+                            "another known camera: did=%s ip=%s lan_did=%s",
+                            did,
+                            ip,
+                            matched_did,
+                        )
+                        continue
+                    lan_info = matched_info
+            if lan_info is None:
                 logger.warning(
                     "Camera LAN override ignored because SDK LAN table has no hit: "
                     "did=%s ip=%s",
