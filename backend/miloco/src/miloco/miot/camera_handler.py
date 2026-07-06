@@ -6,7 +6,6 @@ Camera vision handler utility for managing camera image streams.
 Provides functionality to handle camera image queues and vision processing.
 """
 
-import asyncio
 import logging
 import threading
 import time
@@ -150,15 +149,17 @@ class CameraVisionHandler:
                 max_size=max_size, ttl=ttl
             )
             self._audio_codec[channel] = None
-            asyncio.create_task(
-                self.miot_camera_instance.register_decode_jpg_async(
-                    self.add_camera_img, channel
-                )
-            )
 
         logger.info(
             "CameraImgManager init success, camera did: %s", self.camera_info.did
         )
+
+    async def register_decode_jpg_streams(self) -> None:
+        """Register decoded JPG callbacks before starting the native stream."""
+        for channel in range(self.camera_info.channel_count or 1):
+            await self.miot_camera_instance.register_decode_jpg_async(
+                self.add_camera_img, channel
+            )
 
     async def register_raw_stream(
         self, callback: Callable[[str, bytes, int, int, int], Coroutine], channel: int

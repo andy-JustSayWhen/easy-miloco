@@ -49,6 +49,9 @@ from miloco.miot.welcome_service import DeviceWelcomeService
 logger = logging.getLogger(__name__)
 
 
+_P2P_PRIME_CAMERA_MODELS = {"chuangmi.camera.061a01"}
+
+
 def build_sub_device_names(device: MIoTDeviceInfo) -> dict[str, str]:
     """Convert MIoTDeviceInfo.sub_devices to {siid: user_alias}.
 
@@ -588,6 +591,18 @@ class MiotProxy:
         if camera_instance is not None:
             pin_code = self._get_camera_pin_code(camera_info.did)
             video_quality = self._get_camera_video_quality(camera_info.did)
+            camera_img_manager = CameraVisionHandler(
+                camera_info,
+                camera_instance,
+                # 传 manager，让 handler.destroy() 走 manager.destroy_camera_async(did)
+                # 清 SDK _camera_map cache。SDK 隐藏 access 在 backend 多处已有先例
+                # (如 client.py:599 self._camera_client.camera_map)。
+                self._miot_client._camera_client,
+                max_size=self._max_cache_images,
+                ttl=self._camera_img_cache_ttl,
+            )
+            await camera_img_manager.register_decode_jpg_streams()
+            await self._prime_camera_p2p_stream(camera_info)
             logger.info(
                 "Starting camera %s with video quality %s",
                 camera_info.did,
@@ -599,21 +614,41 @@ class MiotProxy:
                 enable_audio=get_settings().camera.enable_audio_perception,
                 pin_code=pin_code,
             )
-            camera_img_manager = CameraVisionHandler(
-                camera_info,
-                camera_instance,
-                # 传 manager，让 handler.destroy() 走 manager.destroy_camera_async(did)
-                # 清 SDK _camera_map cache。SDK 隐藏 access 在 backend 多处已有先例
-                # (如 client.py:599 self._camera_client.camera_map)。
-                self._miot_client._camera_client,
-                max_size=self._max_cache_images,
-                ttl=self._camera_img_cache_ttl,
-            )
             self._camera_img_managers[camera_info.did] = camera_img_manager
             return camera_img_manager
         else:
             logger.error("Camera instance for %s is None, skipping", camera_info.did)
             return None
+
+    async def _prime_camera_p2p_stream(self, camera_info: MIoTCameraInfo) -> None:
+        """Prime model-specific P2P stream actions before native SDK start."""
+        if getattr(camera_info, "model", None) not in _P2P_PRIME_CAMERA_MODELS:
+            return
+
+        for aiid, action_name in ((2, "stop-stream"), (1, "start-p2p-stream")):
+            try:
+                result = await self.call_device_action(
+                    MIoTActionParam(
+                        did=camera_info.did,
+                        siid=9,
+                        aiid=aiid,
+                        in_=[],
+                    )
+                )
+                logger.info(
+                    "Primed camera %s action %s: %s",
+                    camera_info.did,
+                    action_name,
+                    result,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "Camera %s %s prime action failed: %s",
+                    camera_info.did,
+                    action_name,
+                    e,
+                )
+                return
 
     def _get_camera_pin_code(self, did: str) -> str | None:
         """Load optional per-camera PIN override from the Miloco workspace."""

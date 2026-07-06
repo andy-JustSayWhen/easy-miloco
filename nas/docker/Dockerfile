@@ -13,6 +13,7 @@ RUN apt-get update \
         bash \
         ca-certificates \
         curl \
+        iputils-ping \
         iproute2 \
         lsof \
         procps \

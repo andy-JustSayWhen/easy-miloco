@@ -9,6 +9,7 @@ import asyncio
 import ipaddress
 import logging
 import platform
+import shutil
 import socket
 import subprocess
 from typing import Callable, Coroutine, Optional
@@ -241,6 +242,8 @@ class MIoTNetwork:
 
     async def __ping_async(self, address: Optional[str] = None) -> float:
         start_ts: float = self._main_loop.time()
+        if shutil.which("ping") is None:
+            return self._DETECT_TIMEOUT
         try:
             process = await asyncio.create_subprocess_exec(
                 *(
@@ -256,7 +259,7 @@ class MIoTNetwork:
                 return self._main_loop.time() - start_ts
             return self._DETECT_TIMEOUT
         except Exception as err:
-            print(err)
+            _LOGGER.debug("ping detect failed for %s: %s", address, err)
             return self._DETECT_TIMEOUT
 
     async def __http_async(self, url: str) -> float:

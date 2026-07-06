@@ -89,6 +89,17 @@ curl -fsS -H "Authorization: Bearer <server_token>" \
 7. 如果单点 LAN 探测能把目标摄像头映射到局域网 IP，可把该 IP 写入 `camera_lan_overrides.json` 后重启后端；但重启后仍必须验证 `connected=true`、快照 HTTP 200 或短录制 HTTP 200。
 8. 如果 `lan_online=true`、`local_ip` 有值但 direct SDK probe 仍是 `raw=0`、`jpg=0`、`frame=0`，说明已经过了“找 IP”阶段，断点在底层视频通道。继续查设备 spec 是否有 `start-p2p-stream` / `stop-stream` 之类动作，只读确认后再谨慎调用。
 
+### `chuangmi.camera.061a01` 不出帧
+
+`chuangmi.camera.061a01` 已验证不是“摄像头开关未开启”问题：`on@摄像机控制=true`，LOW 画质、LAN override、先注册 JPG 回调再启动 SDK、以及启动前执行 `stop-stream` / `start-p2p-stream` 均不能让底层 SDK 吐出 raw/JPG/frame。
+
+当前处理口径：
+
+- 后端 `scope camera list` 返回 `stream_state=native_stream_no_frames`，不要再提示用户“打开开关开启感知”。
+- 前端应显示“底层视频通道未出帧”的原因，避免误导用户反复开关。
+- 身份录入先走上传照片/视频路径，或换一台已验证可出帧的摄像头。
+- 不要把米家 App 能看画面当成 Miloco 已可感知的证据；App 可能走云端或不同视频通道。
+
 排除项：
 
 - 临时停止手机端预览或调用设备 stop stream 后仍无 keyframe：不是手机 App 占用导致。

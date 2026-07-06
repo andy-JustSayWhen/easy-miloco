@@ -25,7 +25,7 @@ from miloco.middleware.exceptions import (
     ValidationException,
 )
 from miloco.miot import filter as miot_filter
-from miloco.miot.service import MiotService
+from miloco.miot.service import MiotService, _camera_stream_hint
 from miot.types import MIoTCameraVideoQuality
 
 
@@ -1053,6 +1053,22 @@ def test_get_camera_video_quality_prefers_per_camera_override(
     assert proxy._get_camera_video_quality("c1") == MIoTCameraVideoQuality.HIGH
 
 
+def test_camera_stream_hint_reports_native_no_frames_for_chuangmi_061a01():
+    cam = SimpleNamespace(
+        online=True,
+        lan_online=True,
+        local_ip="192.168.31.104",
+        model="chuangmi.camera.061a01",
+        camera_status="2",
+    )
+
+    hint = _camera_stream_hint(cam)
+
+    assert hint is not None
+    assert hint["state"] == "native_stream_no_frames"
+    assert "底层视频通道没有吐出" in hint["message"]
+
+
 @pytest.mark.asyncio
 async def test_create_camera_img_manager_passes_pin_override(_scope_proxy_env):
     proxy, _kv, miot_client = _scope_proxy_env
@@ -1106,6 +1122,87 @@ async def test_create_camera_img_manager_passes_video_quality_override(
         enable_audio=False,
         pin_code=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_create_camera_img_manager_registers_decode_before_start(
+    _scope_proxy_env,
+):
+    proxy, _kv, miot_client = _scope_proxy_env
+    call_order = []
+
+    mock_instance = MagicMock()
+
+    async def _register_decode_jpg(*args, **kwargs):
+        call_order.append("register_decode_jpg")
+
+    async def _start(*args, **kwargs):
+        call_order.append("start")
+
+    mock_instance.register_decode_jpg_async = AsyncMock(
+        side_effect=_register_decode_jpg
+    )
+    mock_instance.start_async = AsyncMock(side_effect=_start)
+    miot_client.create_camera_instance_async = AsyncMock(return_value=mock_instance)
+    miot_client._camera_client = MagicMock()
+
+    cam = _camera("c1", home_id="H1")
+    cam.channel_count = 1
+
+    result = await proxy._create_camera_img_manager(cam)
+
+    assert result is not None
+    assert call_order == ["register_decode_jpg", "start"]
+
+
+@pytest.mark.asyncio
+async def test_create_camera_img_manager_primes_p2p_for_chuangmi_061a01(
+    _scope_proxy_env,
+):
+    proxy, _kv, miot_client = _scope_proxy_env
+
+    mock_instance = MagicMock()
+    mock_instance.register_decode_jpg_async = AsyncMock()
+    mock_instance.start_async = AsyncMock()
+    miot_client.create_camera_instance_async = AsyncMock(return_value=mock_instance)
+    miot_client._camera_client = MagicMock()
+    miot_client.http_client = SimpleNamespace(action_async=AsyncMock(return_value={"code": 0}))
+
+    cam = _camera("c1", home_id="H1")
+    cam.channel_count = 1
+    cam.model = "chuangmi.camera.061a01"
+
+    result = await proxy._create_camera_img_manager(cam)
+
+    assert result is not None
+    calls = miot_client.http_client.action_async.await_args_list
+    assert [(c.args[0].siid, c.args[0].aiid, c.args[0].in_) for c in calls] == [
+        (9, 2, []),
+        (9, 1, []),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_create_camera_img_manager_skips_p2p_prime_for_other_models(
+    _scope_proxy_env,
+):
+    proxy, _kv, miot_client = _scope_proxy_env
+
+    mock_instance = MagicMock()
+    mock_instance.register_decode_jpg_async = AsyncMock()
+    mock_instance.start_async = AsyncMock()
+    miot_client.create_camera_instance_async = AsyncMock(return_value=mock_instance)
+    miot_client._camera_client = MagicMock()
+    miot_client.http_client = SimpleNamespace(action_async=AsyncMock(return_value={"code": 0}))
+
+    cam = _camera("c1", home_id="H1")
+    cam.channel_count = 1
+    cam.model = "chuangmi.camera.036a02"
+
+    result = await proxy._create_camera_img_manager(cam)
+
+    assert result is not None
+    miot_client.http_client.action_async.assert_not_awaited()
 
 
 @pytest.mark.asyncio

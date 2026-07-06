@@ -58,6 +58,14 @@ def _is_camera_family_model(model: str | None) -> bool:
     return len(parts) > 1 and parts[1] == "camera"
 
 
+_NO_NATIVE_FRAME_CAMERA_MODELS = {
+    "chuangmi.camera.061a01": (
+        "这台摄像头已在线且开关已开启，但当前 Miloco 底层视频通道没有吐出可分析画面。"
+        "这不是开关问题；请先使用上传照片/视频录入身份，或换一台已验证能出帧的摄像头。"
+    )
+}
+
+
 def _parse_prop_iid(iid: str) -> tuple[int, int]:
     """Parse 'prop.{siid}.{piid}' → (siid, piid)."""
     parts = iid.split(".")
@@ -99,8 +107,15 @@ def _camera_stream_hint(info: MIoTCameraInfo) -> dict[str, str] | None:
     cloud_online = bool(_camera_info_value(info, "online"))
     lan_online = bool(_camera_info_value(info, "lan_online"))
     local_ip = _camera_info_value(info, "local_ip")
+    model = _camera_info_value(info, "model")
     camera_status_raw = _camera_info_value(info, "camera_status")
     camera_status = str(getattr(camera_status_raw, "value", camera_status_raw) or "")
+
+    if cloud_online and model in _NO_NATIVE_FRAME_CAMERA_MODELS:
+        return {
+            "state": "native_stream_no_frames",
+            "message": _NO_NATIVE_FRAME_CAMERA_MODELS[model],
+        }
 
     if (
         cloud_online
