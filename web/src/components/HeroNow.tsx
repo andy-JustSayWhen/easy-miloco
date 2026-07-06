@@ -66,19 +66,17 @@ export function HeroNow({
     () => new Map(cameras.map((c) => [c.did, c.channel])),
     [cameras],
   );
-  // 上区 = miloco **当前真正在投喂视频** 的相机。判据用后端权威字段 `connected`
-  // (= MiotService._connected_camera_dids() = 感知 camera_adapter.get_connected_devices()，
-  // 即真正建连、在喂解码帧给感知的那几路)，而不是 `inUse`(只是 KV 里的"想启用"意图——
-  // 启用了但 LAN 拉不起来时 inUse=true 却没真投喂)。再 **按 did 稳定排序**:toggle 某路时
-  // 其余卡 key+DOM 位置不变，React 复用其 iframe，不会连带把其它路的 watch 流断开重连。
-  // 其余相机(未投喂:未启用 / 启用中未连上 / 超出上限)进下区「无流」横向列表。
+  // 上区展示「正在感知」和「用户已经开启、正在连接」的相机。纯用 connected 会在
+  // 摄像头刚接通 / SDK 切换外部流 / 页面拿到旧状态时造成假空态：住户明明打开开关，
+  // 页面却显示「还没有摄像头在感知」。真正的预算与满额仍按 inUse/connected 由后端控制。
   const { streamingCams, benchCams } = useMemo(() => {
     const byDid = (a: ScopeCamera, b: ScopeCamera) =>
       a.did < b.did ? -1 : a.did > b.did ? 1 : 0;
     const sorted = [...scopeCameras].sort(byDid);
-    // 不再前端截断:connected 集天然受后端 MAX_ENABLED_CAMERAS 约束(感知接入层按 did
-    // 升序截断到上限、只连前 N 路；主动 enable 超限也被 toggle_camera 挡下)，展示集即真实投喂集。
-    const streaming = sorted.filter((c) => c.connected);
+    const shouldShowLiveCard = (c: ScopeCamera) =>
+      c.connected ||
+      (c.inUse && c.isOnline && c.streamState !== "native_stream_no_frames");
+    const streaming = sorted.filter(shouldShowLiveCard);
     const sset = new Set(streaming.map((c) => c.did));
     const bench = sorted.filter((c) => !sset.has(c.did));
     return { streamingCams: streaming, benchCams: bench };
@@ -399,8 +397,11 @@ interface CamCardProps {
   onToggle: (next: boolean) => void;
 }
 
-// 上区卡只渲染「正在投喂 miloco（connected）」的相机——必然是活流，无需蒙层。
+// 上区卡渲染「正在感知」或「已开启、正在连接」的相机。
 function CamCardWithToggle({ cam, channel, bulkBusy, onToggle }: CamCardProps) {
+  const { t } = useTranslation();
+  const pendingMessage = !cam.connected ? cameraStreamMessage(cam, t) : "";
+
   return (
     <div className="snap-start shrink-0 w-[min(280px,85vw)]">
       <div className="relative">
@@ -409,6 +410,8 @@ function CamCardWithToggle({ cam, channel, bulkBusy, onToggle }: CamCardProps) {
           roomName={cam.roomName}
           cameraDid={cam.did}
           channel={channel ?? 0}
+          dimmed={!cam.connected}
+          dimmedMessage={pendingMessage || t("hero.streamWaitingFirstFrame")}
         />
         <div className="absolute top-2 right-2">
           <CamSwitch
