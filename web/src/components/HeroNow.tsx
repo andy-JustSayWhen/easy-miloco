@@ -449,7 +449,7 @@ function BenchCamItem({
           </div>
         )}
         {cam.inUse && !cam.connected && (
-          <div className="text-caption text-warning truncate">
+          <div className="text-caption text-warning leading-snug">
             {cameraStreamMessage(cam, t)}
           </div>
         )}

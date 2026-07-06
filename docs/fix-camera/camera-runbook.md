@@ -25,6 +25,7 @@
 | 所有摄像头失败 | 本机网络、WSL mirrored networking、防火墙、后端 camera service |
 | 身份录入弹窗黑屏，但首页摄像头有快照 | 优先查 `/api/miot/snapshot`，身份录入取景器应走轻量快照，不再依赖直播 iframe |
 | 上传照片提示“未识别到人物” | 先确认照片里有上半身或全身；身份注册需要人体样本，不是只做人脸识别 |
+| 米家 App 能看，但 Miloco 仍提示没有摄像头在感知 | 不要把手机 App 画面当作 Miloco 已拿到画面。优先查 NAS 是否发现摄像头局域网地址、Miloco 是否收到 keyframe。 |
 
 ## 必查命令
 
@@ -57,6 +58,33 @@ curl -fsS -H "Authorization: Bearer <server_token>" \
 - `active_sources=[]`：当前没有摄像头正在给感知引擎投喂画面。
 - `stream_state` / `stream_message` 有值：优先按后端返回的中文原因排查，例如等待首帧、首帧超时、冷却后重试。
 - 如果连续 60 秒没有第一张画面，后端会先重建底层摄像头连接；如果仍失败，再进入冷却，避免低配 NAS 被无效重试拖垮。
+
+### 米家 App 能看，但 Miloco 没画面
+
+米家 App 能预览，只能证明摄像头和米家云端账号可用；不能证明 NAS 上的 Miloco 已经拿到本地视频流。Miloco 需要在 NAS 侧通过底层 MIoT SDK 建立视频通道，再拿到可解码帧后才能进入感知。
+
+按下面顺序判断：
+
+1. 查 scope 状态。如果目标摄像头 `online=true`、`in_use=true`，但 `connected=false`，说明开关已经打开，问题不在前端按钮。
+2. 查摄像头列表。如果目标摄像头 `lan_online=false` 且 `local_ip=null`，同时同一网络里的其他摄像头有 `lan_online=true` 和局域网 IP，优先判断为 NAS 没发现这台摄像头的局域网地址。
+3. 查感知引擎。如果 `active_sources=[]`，说明当前没有任何摄像头正在给感知引擎投喂画面。
+4. 查快照。如果 `/api/miot/snapshot` 返回 `no recent frame`，说明后端缓存里没有最近画面。
+5. 查短录制。如果 `/api/miot/record_clip` 超时并提示 `no keyframe`，说明视频通道没有产出可独立解码的关键帧。
+6. 查日志。如果日志只有 `Start video stream`、`Recorder attached`，但随后没有解码出帧，并出现 `no keyframe within ...s`，说明问题在视频数据面，不是 UI 展示。
+
+排除项：
+
+- 临时停止手机端预览或调用设备 stop stream 后仍无 keyframe：不是手机 App 占用导致。
+- 临时调用 start p2p 后仍无 keyframe：不是缺少显式启动动作导致。
+- 临时把目标摄像头从 LOW 切到 HIGH 后仍无 keyframe：不是低画质流不兼容导致。测试后必须恢复 LOW，避免低配 NAS 压力升高。
+
+处理建议：
+
+- 确认 NAS 和摄像头在同一个 Wi-Fi / 网段。
+- 关闭访客网络、AP 隔离、路由器客户端隔离。
+- 重启目标摄像头、路由器或 NAS，再观察 `lan_online` 和 `local_ip` 是否恢复。
+- 如果其他摄像头正常、只有单台失败，优先处理该摄像头的网络接入、固件状态或重新绑定。
+- 交付时不得只说“服务健康”。必须说明是否已经满足 `connected=true`、`active_sources` 包含目标摄像头、快照或短录制成功。
 
 摄像头快照：
 

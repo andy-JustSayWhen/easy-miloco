@@ -84,6 +84,50 @@ def _parse_action_iid(iid: str) -> tuple[int, int]:
         raise ValidationException(f"Invalid iid numbers in '{iid}'") from e
 
 
+def _camera_info_value(info: MIoTCameraInfo, key: str):
+    value = getattr(info, key, None)
+    if value is not None:
+        return value
+    model_dump = getattr(info, "model_dump", None)
+    if callable(model_dump):
+        return model_dump().get(key)
+    return None
+
+
+def _camera_stream_hint(info: MIoTCameraInfo) -> dict[str, str] | None:
+    """Return a user-facing stream hint for common camera connection dead ends."""
+    cloud_online = bool(_camera_info_value(info, "online"))
+    lan_online = bool(_camera_info_value(info, "lan_online"))
+    local_ip = _camera_info_value(info, "local_ip")
+    camera_status_raw = _camera_info_value(info, "camera_status")
+    camera_status = str(getattr(camera_status_raw, "value", camera_status_raw) or "")
+
+    if (
+        cloud_online
+        and not lan_online
+        and not local_ip
+        and (
+            not camera_status
+            or camera_status
+            in {
+                "1",  # DISCONNECTED
+                "2",  # CONNECTING
+                "3",  # RE_CONNECTING
+            }
+        )
+    ):
+        return {
+            "state": "lan_not_found",
+            "message": (
+                "摄像头在米家显示在线，但 NAS 没在局域网发现它的地址；"
+                "Miloco 当前拿不到第一张画面。请确认摄像头和 NAS 在同一个 Wi-Fi/网段，"
+                "关闭访客网络或 AP 隔离后重启摄像头。"
+            ),
+        }
+
+    return None
+
+
 class MiotService:
     """MiOT service class"""
 
@@ -976,8 +1020,9 @@ class MiotService:
         out: list[dict] = []
         stream_health = self._camera_stream_health_by_did()
         for did, info in cameras.items():
-            cloud_online = bool(getattr(info, "online", False))
-            lan_online = bool(getattr(info, "lan_online", False))
+            cloud_online = bool(_camera_info_value(info, "online"))
+            lan_online = bool(_camera_info_value(info, "lan_online"))
+            camera_status_raw = _camera_info_value(info, "camera_status")
             # `is_online` is a reachability/account status for the UI and
             # enable guard. Do not require LAN discovery because it can flap on
             # multi-interface WSL hosts, but still accept a positive LAN hit as
@@ -992,6 +1037,13 @@ class MiotService:
                 "is_online": online,
                 "in_use": did not in denied,
                 "connected": did in connected,
+                "lan_online": _camera_info_value(info, "lan_online"),
+                "local_ip": _camera_info_value(info, "local_ip"),
+                "camera_status": (
+                    str(getattr(camera_status_raw, "value", camera_status_raw))
+                    if camera_status_raw is not None
+                    else None
+                ),
             }
             health = stream_health.get(did)
             if health:
@@ -999,6 +1051,21 @@ class MiotService:
                 item["stream_message"] = health.get("message")
                 if health.get("retry_after_sec") is not None:
                     item["retry_after_sec"] = health.get("retry_after_sec")
+            hint = _camera_stream_hint(info)
+            if (
+                item["in_use"]
+                and not item["connected"]
+                and hint
+                and item.get("stream_state")
+                in {
+                    None,
+                    "waiting_first_frame",
+                    "no_first_frame_retrying",
+                    "cooling_down",
+                }
+            ):
+                item["stream_state"] = hint["state"]
+                item["stream_message"] = hint["message"]
             out.append(item)
         for did, info in unsupported.items():
             out.append(

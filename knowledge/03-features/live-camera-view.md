@@ -120,3 +120,7 @@ GET /api/miot/watch → watch.html（server.token 注入）
 | `stream_state` / `stream_message` | 后端流状态和给用户看的原因 | 优先展示给用户，避免只提示“打开开关” |
 
 如果摄像头已启用但 60 秒内没有第一张解码帧，后端会记录流健康状态并触发一次底层连接重建；再次失败才进入冷却。这样低配 NAS 不会被无效重试持续占满，前端也能给出“正在等首帧 / 重试中 / 冷却后重试”的中文解释。
+
+米家 App 能看到画面，不等于 Miloco 已经能感知。手机 App 可能走云端或自己的视频通道，而 Miloco 必须在 NAS 上通过底层 MIoT SDK 拿到可解码帧。若目标摄像头 `online=true`、`in_use=true`，但 `lan_online=false`、`local_ip=null`、`connected=false`，并且快照返回 `no recent frame`、短录制返回 `no keyframe`，页面应明确告诉用户“摄像头在线，但 NAS 没在局域网发现它的地址或没有拿到关键帧”，不能再显示“打开开关开启感知”。
+
+这个状态的用户行动建议应是网络侧排查：确认 NAS 和摄像头同网段，关闭访客网络、AP 隔离或客户端隔离，重启摄像头/路由器/NAS，必要时重新绑定摄像头。产品侧只能把真实断点讲清楚，不能伪装成已经修复了画面。

@@ -51,7 +51,13 @@ def _home(home_id: str, name: str = "Home"):
 
 
 def _camera(
-    did: str, home_id: str = "H1", *, online: bool = True, lan_online: bool = True
+    did: str,
+    home_id: str = "H1",
+    *,
+    online: bool = True,
+    lan_online: bool = True,
+    local_ip: str | None = None,
+    camera_status: str | None = None,
 ):
     return SimpleNamespace(
         did=did,
@@ -59,6 +65,8 @@ def _camera(
         name=f"cam-{did}",
         online=online,
         lan_online=lan_online,
+        local_ip=local_ip,
+        camera_status=camera_status,
     )
 
 
@@ -326,22 +334,26 @@ async def test_list_cameras_with_state_cloud_online_ignores_stale_lan_status():
     kv = _FakeKV({ScopeConfigKeys.HOME_WHITE_LIST_KEY: json.dumps(["H1"])})
     svc = _make_service(
         devices={"c1": _camera("c1", home_id="H1")},
-        cameras={"c1": _camera("c1", home_id="H1", online=True, lan_online=False)},
+        cameras={
+            "c1": _camera(
+                "c1",
+                home_id="H1",
+                online=True,
+                lan_online=False,
+                local_ip="192.168.1.10",
+            )
+        },
         kv=kv,
     )
 
     out = await svc.list_cameras_with_state()
 
-    assert out == [
-        {
-            "did": "c1",
-            "name": "cam-c1",
-            "room_name": None,
-            "is_online": True,
-            "in_use": True,
-            "connected": False,
-        }
-    ]
+    assert out[0]["did"] == "c1"
+    assert out[0]["is_online"] is True
+    assert out[0]["in_use"] is True
+    assert out[0]["connected"] is False
+    assert out[0]["lan_online"] is False
+    assert out[0]["local_ip"] == "192.168.1.10"
 
 
 @pytest.mark.asyncio
@@ -364,7 +376,15 @@ async def test_list_cameras_with_state_includes_stream_health_when_available():
     kv = _FakeKV({ScopeConfigKeys.HOME_WHITE_LIST_KEY: json.dumps(["H1"])})
     svc = _make_service(
         devices={"c1": _camera("c1", home_id="H1")},
-        cameras={"c1": _camera("c1", home_id="H1", online=True, lan_online=False)},
+        cameras={
+            "c1": _camera(
+                "c1",
+                home_id="H1",
+                online=True,
+                lan_online=True,
+                local_ip="192.168.1.10",
+            )
+        },
         kv=kv,
     )
     svc._camera_stream_health_by_did = lambda: {  # type: ignore[assignment]
@@ -380,6 +400,34 @@ async def test_list_cameras_with_state_includes_stream_health_when_available():
     assert out[0]["stream_state"] == "cooling_down"
     assert out[0]["stream_message"] == "60 秒内没有收到第一张画面。"
     assert out[0]["retry_after_sec"] == 120
+
+
+@pytest.mark.asyncio
+async def test_list_cameras_with_state_explains_cloud_online_without_lan():
+    kv = _FakeKV({ScopeConfigKeys.HOME_WHITE_LIST_KEY: json.dumps(["H1"])})
+    svc = _make_service(
+        devices={"c1": _camera("c1", home_id="H1")},
+        cameras={
+            "c1": _camera(
+                "c1",
+                home_id="H1",
+                online=True,
+                lan_online=False,
+                local_ip=None,
+                camera_status="2",
+            )
+        },
+        kv=kv,
+    )
+
+    out = await svc.list_cameras_with_state()
+
+    assert out[0]["stream_state"] == "lan_not_found"
+    assert "NAS 没在局域网发现它的地址" in out[0]["stream_message"]
+    assert "同一个 Wi-Fi/网段" in out[0]["stream_message"]
+    assert out[0]["lan_online"] is False
+    assert out[0]["local_ip"] is None
+    assert out[0]["camera_status"] == "2"
 
 
 @pytest.mark.asyncio
