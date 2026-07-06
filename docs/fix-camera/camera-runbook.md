@@ -26,6 +26,7 @@
 | 身份录入弹窗黑屏，但首页摄像头有快照 | 优先查 `/api/miot/snapshot`，身份录入取景器应走轻量快照，不再依赖直播 iframe |
 | 上传照片提示“未识别到人物” | 先确认照片里有上半身或全身；身份注册需要人体样本，不是只做人脸识别 |
 | 米家 App 能看，但 Miloco 仍提示没有摄像头在感知 | 不要把手机 App 画面当作 Miloco 已拿到画面。优先查 NAS 是否发现摄像头局域网地址、Miloco 是否收到 keyframe。 |
+| `lan_online=true`、`local_ip` 有值，但仍无画面 | 不要继续让用户反复点开关。继续查底层 SDK 是否收到 raw/JPEG/frame，必要时调用设备 spec 中的视频流动作做验证。 |
 
 ## 必查命令
 
@@ -59,6 +60,7 @@ curl -fsS -H "Authorization: Bearer <server_token>" \
 - `stream_state` / `stream_message` 有值：优先按后端返回的中文原因排查，例如等待首帧、首帧超时、冷却后重试。
 - 如果连续 60 秒没有第一张画面，后端会先重建底层摄像头连接；如果仍失败，再进入冷却，避免低配 NAS 被无效重试拖垮。
 - 首页空态不能只提示“打开开关”。如果存在 `in_use=true` 且 `connected=false` 的摄像头，必须展示 `stream_message`；只有所有摄像头 `in_use=false` 时，才提示用户打开开关。
+- 如果设备只能通过单点 LAN 探测找到 IP，写入 `camera_lan_overrides.json` 只能修复“找不到局域网地址”这一层；仍需用快照、短录制或 SDK probe 证明确实有画面帧。
 
 ### 已开启但 0 个在感知
 
@@ -84,12 +86,15 @@ curl -fsS -H "Authorization: Bearer <server_token>" \
 4. 查快照。如果 `/api/miot/snapshot` 返回 `no recent frame`，说明后端缓存里没有最近画面。
 5. 查短录制。如果 `/api/miot/record_clip` 超时并提示 `no keyframe`，说明视频通道没有产出可独立解码的关键帧。
 6. 查日志。如果日志只有 `Start video stream`、`Recorder attached`，但随后没有解码出帧，并出现 `no keyframe within ...s`，说明问题在视频数据面，不是 UI 展示。
+7. 如果单点 LAN 探测能把目标摄像头映射到局域网 IP，可把该 IP 写入 `camera_lan_overrides.json` 后重启后端；但重启后仍必须验证 `connected=true`、快照 HTTP 200 或短录制 HTTP 200。
+8. 如果 `lan_online=true`、`local_ip` 有值但 direct SDK probe 仍是 `raw=0`、`jpg=0`、`frame=0`，说明已经过了“找 IP”阶段，断点在底层视频通道。继续查设备 spec 是否有 `start-p2p-stream` / `stop-stream` 之类动作，只读确认后再谨慎调用。
 
 排除项：
 
 - 临时停止手机端预览或调用设备 stop stream 后仍无 keyframe：不是手机 App 占用导致。
 - 临时调用 start p2p 后仍无 keyframe：不是缺少显式启动动作导致。
 - 临时把目标摄像头从 LOW 切到 HIGH 后仍无 keyframe：不是低画质流不兼容导致。测试后必须恢复 LOW，避免低配 NAS 压力升高。
+- 旧版 MIoT SDK 缺少 raw packet 注销方法时，重建相机 manager 不能因此中断；应兼容缺失方法并继续执行底层 camera destroy/evict，否则下一次重建可能复用已损坏实例。
 
 处理建议：
 

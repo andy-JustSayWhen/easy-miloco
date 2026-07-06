@@ -74,9 +74,20 @@
 
 摄像头在米家 App 中在线，但 miloco 拉流失败：感知引擎无法连接摄像头、watch 页面显示"等待码流"后超时、系统日志出现防火墙阻断记录。
 
+另一类常见现象是：摄像头开关已开启，`in_use=true`，但页面仍显示没有摄像头在感知。此时要继续区分两层：
+
+- `lan_online=false` 且 `local_ip=null`：NAS 没在局域网发现摄像头地址。可用单点 LAN 探测确认目标 IP，再写入 `camera_lan_overrides.json`。
+- `lan_online=true` 且 `local_ip` 有值，但 `connected=false`、快照 404、短录制无 keyframe：已经不是“找不到 IP”，而是底层视频通道没有产生 raw/JPEG/frame。
+
 ### 原因
 
 miloco 通过 PPCS P2P 协议拉取摄像头码流，底层依赖 UDP。摄像头主动向 miloco 所在机器发送 UDP 包，若系统防火墙默认 DROP 入站 UDP，连接无法建立。
+
+如果单点 LAN 探测能找到 IP，但 direct SDK probe 仍然 `raw=0`、`jpg=0`、`frame=0`，说明 SDK 已知道摄像头地址，但 native camera 通道仍停在连接中。此时应继续检查：
+
+- 设备 spec 中是否有 `start-p2p-stream` / `stop-stream` 之类动作；这些只能作为通道清理/触发验证，不能替代快照或短录制验收。
+- 旧版 MIoT SDK 是否缺少 raw packet 注册/注销 API。缺少时不能让 manager destroy 中断，必须继续执行底层 camera evict，否则自动重建会复用脏实例。
+- `ping` 命令缺失会污染网络探测日志，但如果 LAN 单点探测已经返回目标 DID/IP，它不是“0 帧”的充分解释。
 
 ### 诊断
 

@@ -1459,6 +1459,45 @@ async def test_handler_destroy_routes_through_manager_evict():
     instance.unregister_raw_audio_async.assert_awaited_once()
 
 
+@pytest.mark.asyncio
+async def test_handler_destroy_evicts_when_raw_packet_api_missing():
+    """Older MIoT SDKs lack raw packet unregister; destroy must still evict."""
+    from miloco.miot.camera_handler import CameraVisionHandler
+
+    cam_info = SimpleNamespace(
+        did="d1",
+        name="cam",
+        channel_count=1,
+        audio_codecs=[],
+    )
+    instance = SimpleNamespace(
+        unregister_decode_jpg_async=AsyncMock(),
+        unregister_raw_video_async=AsyncMock(),
+        unregister_raw_audio_async=AsyncMock(),
+        register_decode_jpg_async=AsyncMock(),
+        destroy_async=AsyncMock(),
+    )
+
+    manager = MagicMock()
+    manager.destroy_camera_async = AsyncMock()
+
+    handler = CameraVisionHandler(
+        cam_info,
+        instance,
+        manager,
+        max_size=10,
+        ttl=60,
+    )
+
+    await handler.destroy()
+
+    manager.destroy_camera_async.assert_awaited_once_with(did="d1")
+    instance.destroy_async.assert_not_awaited()
+    instance.unregister_decode_jpg_async.assert_awaited_once()
+    instance.unregister_raw_video_async.assert_awaited_once()
+    instance.unregister_raw_audio_async.assert_awaited_once()
+
+
 # ─── authorize_with_code: 登录后自动选首个家庭（兜底） ────────────────────────────────
 
 

@@ -1377,7 +1377,7 @@ class MIoTCamera:
 
     def _on_miot_camera_log(self, level: int, msg: bytes) -> None:
         """Log handler for MIoT Camera."""
-        _LOGGER.info(msg.decode("utf-8"))
+        _LOGGER.info(msg.decode("utf-8", errors="replace"))
 
 
 @cached(ttl=600, cache=Cache.MEMORY)
