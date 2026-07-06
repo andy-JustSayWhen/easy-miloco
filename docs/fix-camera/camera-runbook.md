@@ -58,6 +58,19 @@ curl -fsS -H "Authorization: Bearer <server_token>" \
 - `active_sources=[]`：当前没有摄像头正在给感知引擎投喂画面。
 - `stream_state` / `stream_message` 有值：优先按后端返回的中文原因排查，例如等待首帧、首帧超时、冷却后重试。
 - 如果连续 60 秒没有第一张画面，后端会先重建底层摄像头连接；如果仍失败，再进入冷却，避免低配 NAS 被无效重试拖垮。
+- 首页空态不能只提示“打开开关”。如果存在 `in_use=true` 且 `connected=false` 的摄像头，必须展示 `stream_message`；只有所有摄像头 `in_use=false` 时，才提示用户打开开关。
+
+### 已开启但 0 个在感知
+
+这个状态要先拆成两层，不要反复让用户点开关：
+
+| 字段组合 | 含义 | 下一步 |
+| --- | --- | --- |
+| `in_use=false`、`connected=false` | 用户没有允许 Miloco 使用这台摄像头 | 引导用户打开该摄像头开关 |
+| `in_use=true`、`connected=false` | 开关已保存，但后端没有收到可解码视频帧 | 查 `stream_state`、快照、短录制和底层 SDK probe |
+| `in_use=true`、`connected=true` | 后端已经收到帧 | 再查 `active_sources` 和 OpenClaw 视觉链路 |
+
+如果 `stream_state=lan_not_found`，且快照返回 `no recent frame`、短录制返回 `no keyframe`，必须继续做 direct SDK probe。probe 结果如果是 `raw=0`、`jpg=0`、`frame=0`，同时状态停在 `CONNECTING`，说明视频数据面没有打通；这时不能把“米家 App 能看”当作 Miloco 已恢复的证据。
 
 ### 米家 App 能看，但 Miloco 没画面
 
