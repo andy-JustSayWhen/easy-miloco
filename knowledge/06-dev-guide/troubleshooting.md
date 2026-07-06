@@ -109,6 +109,13 @@ miloco 通过 PPCS P2P 协议拉取摄像头码流，底层依赖 UDP。摄像�
 
 验收时必须看到目标摄像头 `connected=true`，并通过首页实时画面或 `/api/miot/snapshot` 确认有真实画面；只看到 `external_stream_configured` 还不算修复完成。
 
+go2rtc 桥接注意事项：
+
+- go2rtc 需要小米网页登录凭据或 passToken；Miloco 当前的 `MIOT_TOKEN_INFO_KEY.access_token` / `refresh_token` 是 OAuth 授权令牌，不能直接替代。
+- 桥接流建议固定命名为 `mi_061a01`，Miloco 配置使用 `rtsp://127.0.0.1:8554/mi_061a01`。
+- go2rtc WebUI 默认端口可用 `1984`，RTSP 默认端口可用 `8554`。创建流后先查 `http://127.0.0.1:1984/api/streams`，确认流存在，再启用 Miloco 摄像头。
+- 不要在桥接流未创建时反复打开 Miloco 开关；这只会让外部流解码器持续重连，仍然不会产生画面。
+
 ### 诊断
 
 ```bash

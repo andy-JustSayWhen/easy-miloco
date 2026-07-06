@@ -146,6 +146,68 @@ curl -fsS -H "Authorization: Bearer <server_token>" \
 
 如果桥接流地址不可达，状态会停留在“等待第一张可分析画面”。这时不要再反复切开关，先用 ffmpeg、ffprobe 或 go2rtc 页面验证桥接流本身是否可播放。
 
+#### go2rtc 桥接小米摄像头
+
+`chuangmi.camera.061a01` 这类米家 App 可看、Miloco 原生 SDK 不吐帧的机型，可先用 go2rtc 建立小米视频源，再把 go2rtc 输出的 RTSP 地址交给 Miloco。
+
+NAS x86_64 手动安装示例：
+
+```bash
+mkdir -p /data/go2rtc
+curl -L -o /data/go2rtc/go2rtc \
+  https://github.com/AlexxIT/go2rtc/releases/download/v1.9.14/go2rtc_linux_amd64
+chmod +x /data/go2rtc/go2rtc
+cat >/data/go2rtc/go2rtc.yaml <<'YAML'
+api:
+  listen: ":1984"
+rtsp:
+  listen: ":8554"
+webrtc:
+  listen: ":8555"
+log:
+  level: info
+streams: {}
+YAML
+nohup /data/go2rtc/go2rtc -config /data/go2rtc/go2rtc.yaml \
+  >/data/go2rtc/go2rtc.log 2>&1 &
+```
+
+打开：
+
+```text
+http://<nas-ip>:1984/
+```
+
+在 go2rtc WebUI 中添加 Xiaomi 源并登录小米账号。Miloco 的 OAuth token 不能直接替代 go2rtc 需要的小米网页登录凭据；如果当前机器只有 `MIOT_TOKEN_INFO_KEY.access_token` / `refresh_token`，仍需要在 go2rtc 里单独登录或提供 passToken。
+
+建议流名固定为：
+
+```text
+mi_061a01
+```
+
+go2rtc 源创建成功后验证：
+
+```bash
+curl -fsS http://127.0.0.1:1984/api/streams
+```
+
+确认存在 `mi_061a01` 后，在 Miloco 配置中写入：
+
+```json
+{
+  "camera": {
+    "video_quality": "LOW",
+    "external_stream_frame_interval": 1000,
+    "external_streams": {
+      "<camera_did>": "rtsp://127.0.0.1:8554/mi_061a01"
+    }
+  }
+}
+```
+
+然后重启 Miloco 后端并打开该摄像头开关。最终验收仍以 Miloco 的 `connected=true`、首页真实画面或 `/api/miot/snapshot` 成功为准。
+
 排除项：
 
 - 临时停止手机端预览或调用设备 stop stream 后仍无 keyframe：不是手机 App 占用导致。
