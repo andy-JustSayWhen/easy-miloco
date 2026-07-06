@@ -1128,6 +1128,21 @@ class MiotService:
             )
 
         if enable_dids:
+            no_frame_enable = [
+                d
+                for d in enable_dids
+                if getattr(cameras[d], "model", None) in _NO_NATIVE_FRAME_CAMERA_MODELS
+            ]
+            if no_frame_enable:
+                detail = ", ".join(
+                    f"{d} ({getattr(cameras[d], 'model', None) or 'unknown model'})"
+                    for d in no_frame_enable
+                )
+                raise ValidationException(
+                    "这些摄像头当前底层视频通道不会吐出可分析画面，不能作为 Miloco 感知源："
+                    f"{detail}。请启用另一台已验证能出帧的摄像头。"
+                )
+
             # 离线设备禁止「开启」投喂:它被感知接入层 online_only 过滤、永远连不上,
             # 开了也不出画面、徒占上限名额。只拦「开启」——已启用的设备掉线后仍保留
             # inUse=true(允许态不被强制改),且可正常被「关闭」(disable 不走这条校验)。

@@ -93,9 +93,18 @@ curl -fsS -H "Authorization: Bearer <server_token>" \
 
 `chuangmi.camera.061a01` 已验证不是“摄像头开关未开启”问题：`on@摄像机控制=true`，LOW 画质、LAN override、先注册 JPG 回调再启动 SDK、以及启动前执行 `stop-stream` / `start-p2p-stream` 均不能让底层 SDK 吐出 raw/JPG/frame。
 
+2026-07-06 NAS 复测补充：
+
+- 当前容器已具备 host 网络视角，可直接看到 NAS 局域网地址 `192.168.31.225`，排除 bridge/NAT 网络层导致的 P2P 不通。
+- 三台摄像头均 `is_set_pincode=0`，排除 PIN 导致的鉴权失败。
+- direct SDK probe 对照：`chuangmi.camera.021a04` 与 `chuangmi.camera.036a02` 约 2 秒内分别拿到 raw/JPG；同账号、同 NAS、同 LOW 画质下，`chuangmi.camera.061a01` 在 `channel_count=1` / `channel_count=2` 均为 raw=0、JPG=0，状态停留在 CONNECTING。
+- 启动 SDK 后再调用 `stop-stream` / `start-p2p-stream` 返回 code=0，但仍 raw=0、JPG=0；排除“动作触发时机”导致的不出帧。
+- 运行态修复应先把 Miloco scope 切到已验证能出帧的摄像头，例如同房间 `450305034`。切换后需验证 `connected=true` 且 `/api/miot/snapshot` 返回 `image/jpeg`。
+
 当前处理口径：
 
 - 后端 `scope camera list` 返回 `stream_state=native_stream_no_frames`，不要再提示用户“打开开关开启感知”。
+- 后端应拒绝把该型号重新启用为感知源，避免单摄像头家庭反复进入“没有摄像头在感知”的状态。
 - 前端应显示“底层视频通道未出帧”的原因，避免误导用户反复开关。
 - 身份录入先走上传照片/视频路径，或换一台已验证可出帧的摄像头。
 - 不要把米家 App 能看画面当成 Miloco 已可感知的证据；App 可能走云端或不同视频通道。

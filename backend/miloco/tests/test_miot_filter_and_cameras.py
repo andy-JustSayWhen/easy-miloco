@@ -572,6 +572,29 @@ async def test_toggle_camera_rejects_unsupported_camera_family_model_with_clear_
         await svc.toggle_camera([{"did": "c2", "in_use": True}])
 
 
+@pytest.mark.asyncio
+async def test_toggle_camera_rejects_known_native_no_frame_model_on_enable():
+    kv = _FakeKV(
+        {
+            ScopeConfigKeys.HOME_WHITE_LIST_KEY: json.dumps(["H1"]),
+            ScopeConfigKeys.CAMERA_BLACK_LIST_KEY: json.dumps(["c1"]),
+        }
+    )
+    cam = _camera("c1", home_id="H1")
+    cam.model = "chuangmi.camera.061a01"
+    svc = _make_service(
+        devices={"c1": _device("c1", model="chuangmi.camera.061a01", home_id="H1")},
+        cameras={"c1": cam},
+        kv=kv,
+    )
+
+    with pytest.raises(ValidationException, match="不会吐出可分析画面"):
+        await svc.toggle_camera([{"did": "c1", "in_use": True}])
+
+    res = await svc.toggle_camera([{"did": "c1", "in_use": False}])
+    assert any(c["did"] == "c1" and c["in_use"] is False for c in res)
+
+
 # ─── _assert_did_in_allowed_home ─────────────────────────────────────────────
 
 
