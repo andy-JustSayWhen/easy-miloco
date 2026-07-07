@@ -116,6 +116,41 @@ go2rtc 桥接注意事项：
 - go2rtc WebUI 默认端口可用 `1984`，RTSP 默认端口可用 `8554`。创建流后先查 `http://127.0.0.1:1984/api/streams`，确认流存在，再启用 Miloco 摄像头。
 - 不要在桥接流未创建时反复打开 Miloco 开关；这只会让外部流解码器持续重连，仍然不会产生画面。
 
+常见误判：Miloco 已配置外部流，但 go2rtc 没在运行。
+
+症状：
+
+- 前端显示摄像头已打开，文案类似“等待第一张可分析画面”。
+- `/api/miot/scope/cameras` 中目标摄像头可能显示 `in_use=true`，但 `connected=false`。
+- 后端日志反复出现 `no recent frame` 或 `external_stream_connecting`。
+
+判断：
+
+```bash
+pgrep -af "/data/go2rtc/go2rtc" || true
+curl -fsS --max-time 5 http://127.0.0.1:1984/api/streams
+```
+
+如果 `1984` 不通，或 `8554` 不通，Miloco 配置里的
+`rtsp://127.0.0.1:8554/<stream>` 只是一个空地址，无法产生摄像头画面。
+
+临时恢复：
+
+```bash
+setsid /data/go2rtc/go2rtc -config /data/go2rtc/go2rtc.yaml \
+  >/data/go2rtc/go2rtc.log 2>&1 < /dev/null &
+```
+
+恢复后重新验证：
+
+```bash
+curl -fsS --max-time 5 http://127.0.0.1:1984/api/streams
+tail -n 50 "$MILOCO_HOME/log/miloco-backend.log" | grep -E "snapshot|no recent frame|external_stream"
+```
+
+最终验收仍以 Miloco 快照接口返回 200、首页出现真实画面、目标摄像头
+`connected=true` 为准。只看到 go2rtc 有 stream，不代表 Miloco 已经消费成功。
+
 ### 诊断
 
 ```bash
@@ -178,6 +213,25 @@ Set-NetFirewallHyperVVMSetting -Name '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -D
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 新设备绑定后无欢迎播报 | `GET /api/miot/mips_status` 检查 MQTT 连接状态；确认新设备在启用家庭 scope 内                                                                                            |
 | 欢迎功能偶发不触发     | 查 `miloco-backend.log`：listener（`mips_listeners.py`）日志确认 bind / hr_change 事件是否到达；`DeviceWelcomeService` 日志确认欢迎是否实际发送（skipped / OK / FAILED） |
+
+---
+
+## 家庭任务时长累计不触发
+
+| 现象 | 排查 / 解决 |
+| ---- | ----------- |
+| 任务描述是“持续 N 分钟提醒”，但今天没有累计记录 | 先查 `task_record_duration` 是否有对应 `task_id` 的 active 记录。没有记录时，任务只能触发动作，不能累计时长。 |
+| 规则是 `event` 模式，且只有 `action_descriptions` | 这是一次性事件触发，不适合久坐、坐姿不良、清醒时长这类持续状态。应改为 `state` 模式。 |
+| 已改 `state` 但没有达标提醒 | 确认提醒文本在 `on_target_desc`，进入状态用 `on_enter_desc` 开始记录，离开状态用 `on_exit_desc` 结束记录。 |
+| 改完数据库但运行不生效 | 重启 Miloco 后端，让 RuleRunner 重新加载规则和 task record。 |
+
+推荐建模：
+
+- `state`：表示人已经进入某种状态，例如久坐、坐姿不良、清醒活动。
+- `task_record_duration`：表示每天累计这个状态持续多久。
+- `on_enter_desc`：只负责开始记录，不提醒。
+- `on_exit_desc`：只负责结束记录，不提醒。
+- `on_target_desc`：累计达到目标分钟数时提醒用户。
 
 ---
 

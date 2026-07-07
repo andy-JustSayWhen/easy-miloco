@@ -145,3 +145,51 @@ ports:
 4. 验证 OpenClaw Miloco 插件仍可用。
 5. 用单路桌面摄像头跑 5-10 分钟只读采样。
 6. 再进入多路、移动、夜间和规则触发场景验收。
+
+## 2026-07-07 08:25 运行态修复记录
+
+### 家庭任务模式修复
+
+现象：
+
+- `sit_30min`、`posture_5min`、`awake_4h` 三个家庭任务都处于 `event` 模式，只会在条件满足后触发一次动作。
+- 三个任务都没有 `task_record_duration` 记录，因此无法按天累计“坐了多久 / 坐姿不良多久 / 清醒活动多久”。
+
+修复：
+
+- 将三条规则改为 `state` 模式。
+- 为三个任务补充 active 的 `task_record_duration`：
+  - `sit_30min`：30 分钟。
+  - `posture_5min`：5 分钟。
+  - `awake_4h`：240 分钟。
+- 将提醒动作移动到 `on_target_desc`，进入和退出状态只负责开始 / 结束记录，不直接提醒用户。
+
+当前验收：
+
+- 三条规则均为 `mode=state`。
+- 三条 `task_record_duration` 均为 `status=active`，`recurring_pattern={"window":"day"}`。
+
+### 摄像头外部流恢复
+
+现象：
+
+- 前端显示摄像头开关已打开，但一直等待画面。
+- 后端状态停留在外部桥接流等待第一帧。
+
+根因：
+
+- Miloco 配置中 `camera.external_streams.1146439633` 指向 `rtsp://127.0.0.1:8554/mi_061a01`。
+- 但 go2rtc 进程未运行，容器内 `127.0.0.1:1984` 和 `127.0.0.1:8554` 都不可达。
+- 因此外部流地址虽然存在，实际没有视频帧可供 Miloco 解码。
+
+修复：
+
+- 启动 `/data/go2rtc/go2rtc -config /data/go2rtc/go2rtc.yaml`。
+- 将 go2rtc 程序块写入 `/data/miloco/supervisord.conf`，便于后续纳入进程看护。
+- 重启 Miloco 后端，让规则和摄像头连接状态重新加载。
+
+当前验收：
+
+- go2rtc 进程存在，`/api/streams` 可见 `mi_061a01`。
+- Miloco 后端进程存在。
+- `miloco-backend.log` 中目标摄像头快照接口已连续返回 200，不再是 `no recent frame`。
