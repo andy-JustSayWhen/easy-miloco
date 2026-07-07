@@ -141,6 +141,32 @@ setsid /data/go2rtc/go2rtc -config /data/go2rtc/go2rtc.yaml \
   >/data/go2rtc/go2rtc.log 2>&1 < /dev/null &
 ```
 
+持久恢复：
+
+将 go2rtc 加入 `$MILOCO_HOME/supervisord.conf`：
+
+```ini
+[program:go2rtc]
+command=/data/go2rtc/go2rtc -config /data/go2rtc/go2rtc.yaml
+directory=/data/go2rtc
+autorestart=true
+startretries=3
+startsecs=3
+stopwaitsecs=10
+redirect_stderr=true
+stdout_logfile=/data/go2rtc/go2rtc.log
+stdout_logfile_maxbytes=10MB
+stdout_logfile_backups=5
+```
+
+如果 NAS Web 终端里的 `supervisorctl` 没有稳定输出，不要反复执行同一条
+`supervisorctl update`。可以直接走 supervisor XML-RPC 控制 socket：
+
+1. 调 `supervisor.reloadConfig`。
+2. 调 `supervisor.addProcessGroup("go2rtc")`。
+3. 调 `supervisor.getAllProcessInfo` 确认 `go2rtc` 为 `RUNNING`。
+4. 手动终止 go2rtc 一次，确认 supervisord 自动拉起新 PID，且新进程父进程是 supervisord。
+
 恢复后重新验证：
 
 ```bash

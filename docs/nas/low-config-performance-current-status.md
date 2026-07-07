@@ -185,11 +185,12 @@ ports:
 修复：
 
 - 启动 `/data/go2rtc/go2rtc -config /data/go2rtc/go2rtc.yaml`。
-- 将 go2rtc 程序块写入 `/data/miloco/supervisord.conf`，便于后续纳入进程看护。
+- 将 go2rtc 程序块写入 `/data/miloco/supervisord.conf`，并通过 supervisor XML-RPC 让运行中的 supervisord 重新加载配置、添加 `go2rtc` 进程组。
 - 重启 Miloco 后端，让规则和摄像头连接状态重新加载。
 
 当前验收：
 
-- go2rtc 进程存在，`/api/streams` 可见 `mi_061a01`。
+- go2rtc 进程存在，父进程是 supervisord；`/api/streams` 可见 `mi_061a01`。
 - Miloco 后端进程存在。
 - `miloco-backend.log` 中目标摄像头快照接口已连续返回 200，不再是 `no recent frame`。
+- 已做看护验证：手动终止 go2rtc 后，supervisord 自动拉起新进程，快照接口继续返回 200。
